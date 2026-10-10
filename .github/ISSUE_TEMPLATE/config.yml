@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "Documentation / Documentación"
+    url: "https://github.com/GustavoBaranda/chatflow-agent#readme"
+    about: "Read the comprehensive guides and API references. / Consulta las guías completas y referencias de API."
+  - name: "Security Vulnerability Report / Reporte de Vulnerabilidad de Seguridad"
+    url: "https://github.com/GustavoBaranda/chatflow-agent/security/policy"
+    about: "Report security vulnerabilities privately and responsibly. / Reporta vulnerabilidades de seguridad de forma privada y responsable."
+  - name: "Contributing Guide / Guía para Contribuidores"
+    url: "https://github.com/GustavoBaranda/chatflow-agent/blob/main/CONTRIBUTING.md"
+    about: "Learn how to set up the development environment and contribute. / Aprende a configurar el entorno y colaborar."

@@ -1,0 +1,74 @@
+name: "Feature Request / Propuesta de Funcionalidad"
+description: "Suggest an idea, enhancement, or new provider/channel / Proponer una idea, mejora o nuevo proveedor/canal"
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### Thank you for proposing a feature! / ¡Gracias por proponer una mejora!
+        Please describe your proposal clearly so the community can discuss its architectural fit.
+        *Por favor describe tu propuesta claramente para analizar su encaje arquitectónico.*
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Problem to Solve / Problema a Resolver"
+      description: "What problem does this feature solve? / ¿Qué problema o limitación resuelve esta funcionalidad?"
+      placeholder: "Currently, chatflow-agent does not support..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: "Proposed Feature / Funcionalidad Propuesta"
+      description: "Describe the solution you would like to see implemented. / Describe la solución que te gustaría ver implementada."
+      placeholder: "Add a new Channel class `DiscordChannel` that attaches to `Runner`..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: use_case
+    attributes:
+      label: "Real-World Use Case / Caso de Uso del Mundo Real"
+      description: "Provide a concrete scenario or example of how developers would use this. / Proporciona un escenario concreto de cómo los desarrolladores usarían esto."
+      placeholder: |
+        ```python
+        # Code example showing intended API usage:
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: "Alternatives Considered / Alternativas Consideradas"
+      description: "Did you consider any alternative solutions or workarounds? / ¿Has considerado soluciones alternativas o temporales?"
+      placeholder: "I tried creating a custom Starlette route, but..."
+    validations:
+      required: false
+
+  - type: dropdown
+    id: compatibility_impact
+    attributes:
+      label: "Compatibility Impact / Impacto en Compatibilidad"
+      description: "Would this change break existing APIs? / ¿Este cambio rompería la compatibilidad hacia atrás?"
+      options:
+        - "No breaking change (fully backward compatible / addition of new API)"
+        - "Minor breaking change (affects experimental or internal methods)"
+        - "Major breaking change (alters public Agent, Runner, Channel, or Memory contracts)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: contribution_willingness
+    attributes:
+      label: "Willingness to Contribute / Disposición para Colaborar"
+      description: "Are you interested in submitting a Pull Request for this feature? / ¿Te gustaría enviar un Pull Request para implementar esta funcionalidad?"
+      options:
+        - "Yes, I can implement this and submit a PR / Sí, puedo implementarlo y enviar un PR"
+        - "Yes, but I would need initial architectural guidance / Sí, pero necesitaría orientación arquitectónica inicial"
+        - "No, I am only proposing the idea for the community / No, solo propongo la idea para la comunidad"
+    validations:
+      required: true

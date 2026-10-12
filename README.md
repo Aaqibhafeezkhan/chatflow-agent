@@ -116,7 +116,9 @@ if __name__ == "__main__":
 
 8. [Production Starter Templates](#production-starter-templates)
 
-9. [Guía Completa en Español](#guía-completa-en-español)
+9. [Contributing](#contributing)
+
+10. [Guía Completa en Español](#guía-completa-en-español)
 
 ---
 
@@ -687,6 +689,26 @@ Ready-to-run reference implementations are available in the [`examples/`](exampl
 
 ---
 
+### Contributing
+
+> **Contributions are welcome! Whether you're fixing a bug, improving documentation, adding tests, or proposing a feature, your help is appreciated.**
+
+`chatflow-agent` is an open-source project and welcomes contributions from developers of all backgrounds. We appreciate help with:
+- Bug fixes and resilience hardening
+- Adding unit and integration tests
+- Documentation improvements and code examples
+- Proposing new features or channel connectors
+- Enhancing compatibility across Python environments and LLM providers
+
+Please check our contribution resources before getting started:
+- 📖 [Contributing Guide](CONTRIBUTING.md): Step-by-step setup, branching conventions, testing, and pull request workflow.
+- 🏗️ [Architecture Guide](docs/ARCHITECTURE.md): Internal design, components, and module map.
+- 🤝 [Code of Conduct](CODE_OF_CONDUCT.md): Standards of respect and collaboration.
+- 🔒 [Security Policy](SECURITY.md): How to report vulnerabilities responsibly.
+- 🐛 [GitHub Issues](https://github.com/GustavoBaranda/chatflow-agent/issues): Browse existing bug reports and feature requests.
+
+---
+
 ## Guía Completa en Español
 
 ### Pilares Clave (Por que chatflow-agent?)
@@ -766,7 +788,9 @@ if __name__ == "__main__":
 
 8. [Plantillas de Produccion Listas para Usar](#plantillas-de-produccion-listas-para-usar-1)
 
-9. [Documentación en Inglés](#english-documentation)
+9. [Contribuciones](#contribuciones)
+
+10. [Documentación en Inglés](#english-documentation)
 
 ---
 
@@ -1322,6 +1346,26 @@ En el directorio [`examples/`](examples/) encontraras proyectos completos listos
 * **[examples/local_gemma_cli.py](examples/local_gemma_cli.py):** Asistente de terminal 100% offline y gratuito con Google Gemma 2 via Ollama y sesiones persistentes en SQLite.
 
 * **[examples/multi_provider_swarm.py](examples/multi_provider_swarm.py):** Enjambre multi-proveedor que coordina Gemini, Gemma local, Grok y Claude en un unico flujo conversacional.
+
+---
+
+### Contribuciones
+
+> **¡Las contribuciones son bienvenidas! Ya sea corrigiendo un error, mejorando la documentación, agregando pruebas o proponiendo una nueva funcionalidad, tu ayuda es apreciada.**
+
+`chatflow-agent` es un proyecto de código abierto y recibe con entusiasmo colaboraciones de desarrolladores de todos los niveles. Agradecemos contribuciones en:
+- Corrección de errores y mejoras de resiliencia
+- Incorporación y mejora de pruebas unitarias e integrales
+- Mejoras de documentación, guías y ejemplos ejecutables
+- Propuestas de nuevas funcionalidades y conectores de canales
+- Mejoras de compatibilidad entre versiones de Python y proveedores de IA
+
+Consulta los recursos para colaboradores antes de comenzar:
+- 📖 [Guía de Contribución](CONTRIBUTING.md): Configuración paso a paso del entorno, convenciones y flujo de PR.
+- 🏗️ [Guía de Arquitectura](docs/ARCHITECTURE.md): Diseño interno, componentes y mapa de módulos.
+- 🤝 [Código de Conducta](CODE_OF_CONDUCT.md): Estándares de convivencia y participación.
+- 🔒 [Política de Seguridad](SECURITY.md): Cómo reportar vulnerabilidades de forma responsable.
+- 🐛 [GitHub Issues](https://github.com/GustavoBaranda/chatflow-agent/issues): Explora errores reportados y propuestas activas.
 
 ---
 

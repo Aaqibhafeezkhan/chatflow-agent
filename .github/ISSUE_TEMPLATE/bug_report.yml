@@ -1,0 +1,143 @@
+name: "Bug Report / Reporte de Error"
+description: "Report a bug or unexpected behavior in chatflow-agent / Reportar un error o comportamiento inesperado"
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### Thank you for reporting a bug! / ¡Gracias por reportar un error!
+        Please fill out this form as completely as possible.
+        *Por favor completa este formulario con el mayor detalle posible.*
+
+        > [!CAUTION]
+        > **SECURITY VULNERABILITIES / VULNERABILIDADES DE SEGURIDAD:**
+        > Do NOT use this public form to report security vulnerabilities! Public issues are not secure. Report vulnerabilities privately via [Security Advisories](https://github.com/GustavoBaranda/chatflow-agent/security/advisories).
+        > *¡NO utilices este formulario público para reportar vulnerabilidades de seguridad! Los issues públicos no son seguros. Repórtalas en privado mediante [Avisos de Seguridad](https://github.com/GustavoBaranda/chatflow-agent/security/advisories).*
+        >
+        > **NEVER INCLUDE SECRETS / NUNCA INCLUYAS SECRETOS:**
+        > Never include API keys, access tokens, passwords, or personal telephone numbers in logs or code snippets.
+        > *¡Nunca incluyas API keys, tokens de acceso, contraseñas ni números de teléfono personales en logs ni ejemplos de código!*
+
+  - type: textarea
+    id: description
+    attributes:
+      label: "Problem Description / Descripción del Problema"
+      description: "A clear and concise description of what the bug is. / Una descripción clara y concisa del error."
+      placeholder: "When running the agent with..., it unexpectedly crashes with..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction_steps
+    attributes:
+      label: "Steps to Reproduce / Pasos para Reproducir"
+      description: "Step-by-step instructions on how to trigger the bug. / Instrucciones paso a paso para reproducir el error."
+      placeholder: |
+        1. Define Agent with...
+        2. Attach to Runner with SQLiteSessionStore...
+        3. Send message '...'
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction_code
+    attributes:
+      label: "Minimal Reproduction Code / Código Mínimo de Reproducción"
+      description: "A minimal, self-contained Python script to reproduce the issue. / Un script de Python mínimo y autocontenido para reproducir el problema."
+      placeholder: |
+        ```python
+        import asyncio
+        from chatflow_agent import Agent, Runner
+
+        # Minimal example here...
+        ```
+      render: python
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: "Expected Behavior / Comportamiento Esperado"
+      description: "What did you expect to happen? / ¿Qué esperabas que sucediera?"
+      placeholder: "The agent should return an AgentResponse containing..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: observed_behavior
+    attributes:
+      label: "Observed Behavior / Comportamiento Observado"
+      description: "What actually happened? / ¿Qué sucedió realmente?"
+      placeholder: "An exception was raised / the conversation loop timed out..."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: chatflow_version
+    attributes:
+      label: "chatflow-agent Version / Versión de chatflow-agent"
+      description: "Which version are you using? Run `python -c 'import chatflow_agent; print(chatflow_agent.__version__)'`"
+      options:
+        - "0.3.2 (Latest)"
+        - "0.3.1"
+        - "0.3.0"
+        - "0.2.0"
+        - "main branch (Git development)"
+        - "Other"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: python_version
+    attributes:
+      label: "Python Version / Versión de Python"
+      description: "Run `python --version`"
+      options:
+        - "3.13"
+        - "3.12"
+        - "3.11"
+        - "3.10"
+        - "Other (< 3.10, unsupported)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: "Operating System / Sistema Operativo"
+      options:
+        - "Linux (Ubuntu / Debian / CentOS / Alpine)"
+        - "Windows 10 / 11 / Server"
+        - "macOS"
+        - "Docker Container"
+        - "Other"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: ai_provider
+    attributes:
+      label: "AI Provider / Proveedor de IA"
+      description: "Which provider was active when the bug occurred? / ¿Qué proveedor estaba activo al ocurrir el error?"
+      options:
+        - "Google Gemini (gemini-2.5-flash, gemini-1.5-pro, etc.)"
+        - "OpenAI (gpt-4o, gpt-4o-mini, etc.)"
+        - "Anthropic Claude (claude-3-5-sonnet, etc.)"
+        - "Ollama / Local (gemma2, llama3, etc.)"
+        - "xAI Grok"
+        - "DeepSeek / Groq / vLLM / Other OpenAI-compatible"
+        - "None / N/A (Channel or Memory issue)"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: "Sanitized Logs or Traceback / Registros o Traza Sanitizada"
+      description: "Paste sanitized terminal traceback or logs here. REMOVE ANY SECRETS OR PHONE NUMBERS! / Pega aquí la traza de error. ¡ELIMINA CUALQUIER SECRETO O NÚMERO TELEFÓNICO!"
+      render: text
+    validations:
+      required: false

@@ -1,9 +1,11 @@
 """Tests for chatflow-agent tool introspection and execution engine."""
 
 
+from typing import Optional
+
 import pytest
 
-from chatflow_agent.core.tools import Tool, tool
+from chatflow_agent.core.tools import Tool, _python_type_to_gemini_type, tool
 from chatflow_agent.exceptions import ToolExecutionError
 
 
@@ -46,6 +48,20 @@ def test_tool_introspection_parameters() -> None:
     assert params["properties"]["limit"]["default"] == 10
     assert params["properties"]["verbose"]["type"] == "BOOLEAN"
     assert params["properties"]["verbose"]["default"] is False
+
+
+@pytest.mark.parametrize(
+    ("annotation", "expected"),
+    [
+        (Optional[int], "INTEGER"),  # noqa: UP045 - preserve legacy Optional coverage
+        (int | None, "INTEGER"),
+        (float | None, "NUMBER"),
+        (bool | None, "BOOLEAN"),
+        (list[str] | None, "ARRAY"),
+    ],
+)
+def test_pep604_union_type_introspection(annotation: object, expected: str) -> None:
+    assert _python_type_to_gemini_type(annotation) == expected
 
 
 def test_tool_async_introspection() -> None:

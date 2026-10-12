@@ -2,6 +2,7 @@
 
 import asyncio
 import inspect
+import types
 from collections.abc import Callable
 from typing import (
     Any,
@@ -29,7 +30,7 @@ def _python_type_to_gemini_type(py_type: Any) -> str:
         return "STRING"
 
     origin = get_origin(py_type)
-    if origin is Union:
+    if origin in (Union, types.UnionType):
         # Handle Optional[T] which is Union[T, NoneType]
         args = [arg for arg in get_args(py_type) if arg is not type(None)]
         if args:

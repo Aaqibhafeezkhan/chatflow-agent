@@ -93,8 +93,8 @@ async def chat_endpoint(request: Request) -> JSONResponse:
         "session_id": session_id,
         "content": response.content,
         "active_agent": response.active_agent_name,
-        "tool_calls": [tc.name for tc in response.tool_calls],
-        "handoff": response.handoff.target_agent if response.handoff else None,
+        "tool_calls": response.tool_calls_executed,
+        "handoff": response.handoff.target_agent_name if response.handoff else None,
     })
 
 

@@ -14,7 +14,7 @@
 pip install chatflow-agent
 ```
 
-[English Documentation](#english-documentation) | [Guía en Español](#guía-completa-en-español) | [PyPI Package](https://pypi.org/project/chatflow-agent/) | [Report Issue](https://github.com/GustavoBaranda/chatflow-agent/issues)
+[English Documentation](#english-documentation) | [Guía en Español](#guía-completa-en-español) | [Contributing](#contributing) | [PyPI Package](https://pypi.org/project/chatflow-agent/) | [Report Issue](https://github.com/GustavoBaranda/chatflow-agent/issues)
 
 ---
 
@@ -689,23 +689,22 @@ Ready-to-run reference implementations are available in the [`examples/`](exampl
 
 ---
 
-### Contributing
+<a id="contributing"></a>
+## 🤝 Contributing
 
-> **Contributions are welcome! Whether you're fixing a bug, improving documentation, adding tests, or proposing a feature, your help is appreciated.**
+Contributions are welcome! Whether you are fixing a bug, improving documentation, adding tests, or proposing new channel connectors, your help is appreciated.
 
-`chatflow-agent` is an open-source project and welcomes contributions from developers of all backgrounds. We appreciate help with:
-- Bug fixes and resilience hardening
-- Adding unit and integration tests
-- Documentation improvements and code examples
-- Proposing new features or channel connectors
-- Enhancing compatibility across Python environments and LLM providers
+If you would like to help improve `chatflow-agent`, check out our open issues:
 
-Please check our contribution resources before getting started:
-- 📖 [Contributing Guide](CONTRIBUTING.md): Step-by-step setup, branching conventions, testing, and pull request workflow.
-- 🏗️ [Architecture Guide](docs/ARCHITECTURE.md): Internal design, components, and module map.
-- 🤝 [Code of Conduct](CODE_OF_CONDUCT.md): Standards of respect and collaboration.
-- 🔒 [Security Policy](SECURITY.md): How to report vulnerabilities responsibly.
-- 🐛 [GitHub Issues](https://github.com/GustavoBaranda/chatflow-agent/issues): Browse existing bug reports and feature requests.
+- 🟢 **[Good First Issues](https://github.com/GustavoBaranda/chatflow-agent/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)** — Well-scoped tasks ideal for first-time contributors.
+- 🟡 **[Help Wanted](https://github.com/GustavoBaranda/chatflow-agent/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22)** — Intermediate and advanced tasks looking for assistance.
+- 📋 **[All Open Issues](https://github.com/GustavoBaranda/chatflow-agent/issues)** — Browse all open bug reports, enhancements, and contribution opportunities.
+
+Please read our **[Contributing Guide](CONTRIBUTING.md)** before submitting a Pull Request for setup instructions, code style, and test requirements.
+
+*Created and maintained by [Gustavo Baranda](https://github.com/GustavoBaranda), with contributions from the community.*
+
+See also: [Architecture Guide](docs/ARCHITECTURE.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [Security Policy](SECURITY.md)
 
 ---
 
@@ -1349,29 +1348,28 @@ En el directorio [`examples/`](examples/) encontraras proyectos completos listos
 
 ---
 
-### Contribuciones
+<a id="contribuciones"></a>
+## 🤝 Contribuciones
 
-> **¡Las contribuciones son bienvenidas! Ya sea corrigiendo un error, mejorando la documentación, agregando pruebas o proponiendo una nueva funcionalidad, tu ayuda es apreciada.**
+¡Las contribuciones son bienvenidas! Ya sea que quieras corregir un error, mejorar la documentación, agregar pruebas o proponer nuevos conectores de canales, tu ayuda es valorada.
 
-`chatflow-agent` es un proyecto de código abierto y recibe con entusiasmo colaboraciones de desarrolladores de todos los niveles. Agradecemos contribuciones en:
-- Corrección de errores y mejoras de resiliencia
-- Incorporación y mejora de pruebas unitarias e integrales
-- Mejoras de documentación, guías y ejemplos ejecutables
-- Propuestas de nuevas funcionalidades y conectores de canales
-- Mejoras de compatibilidad entre versiones de Python y proveedores de IA
+Si querés ayudar a mejorar `chatflow-agent`, podés revisar los Issues abiertos:
 
-Consulta los recursos para colaboradores antes de comenzar:
-- 📖 [Guía de Contribución](CONTRIBUTING.md): Configuración paso a paso del entorno, convenciones y flujo de PR.
-- 🏗️ [Guía de Arquitectura](docs/ARCHITECTURE.md): Diseño interno, componentes y mapa de módulos.
-- 🤝 [Código de Conducta](CODE_OF_CONDUCT.md): Estándares de convivencia y participación.
-- 🔒 [Política de Seguridad](SECURITY.md): Cómo reportar vulnerabilidades de forma responsable.
-- 🐛 [GitHub Issues](https://github.com/GustavoBaranda/chatflow-agent/issues): Explora errores reportados y propuestas activas.
+- 🟢 **[Good First Issues](https://github.com/GustavoBaranda/chatflow-agent/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)** — Tareas bien delimitadas, ideales para realizar una primera contribución.
+- 🟡 **[Help Wanted](https://github.com/GustavoBaranda/chatflow-agent/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22)** — Tareas intermedias o avanzadas que buscan colaboradores.
+- 📋 **[Todos los Issues abiertos](https://github.com/GustavoBaranda/chatflow-agent/issues)** — Consultá errores, mejoras y oportunidades de contribución disponibles.
+
+Por favor, revisá nuestra **[Guía de contribución](CONTRIBUTING.md)** antes de enviar un Pull Request. Allí se encuentran las instrucciones de configuración, estilo de código y requisitos de pruebas.
+
+*Creado y mantenido por [Gustavo Baranda](https://github.com/GustavoBaranda), con contribuciones de la comunidad.*
+
+Consultá también: [Guía de Arquitectura](docs/ARCHITECTURE.md) · [Código de Conducta](CODE_OF_CONDUCT.md) · [Política de Seguridad](SECURITY.md)
 
 ---
 
 ## Author & Community / Autor y Comunidad
 
-Created and maintained by / Creado y mantenido por **[Gustavo Baranda](https://github.com/GustavoBaranda)**.
+Created and maintained by **[Gustavo Baranda](https://github.com/GustavoBaranda)**, with contributions from the community. / Creado y mantenido por **[Gustavo Baranda](https://github.com/GustavoBaranda)**, con contribuciones de la comunidad.
 
 If you find `chatflow-agent` useful for your projects, consider giving it a star on GitHub!  
 *Si encuentras util `chatflow-agent` para tus proyectos, considera darle una estrella en GitHub!*

@@ -75,7 +75,7 @@ class Runner:
         )
 
         async with session.lock:
-            checkpoint_len = len(session.history)
+            checkpoint_history = list(session.history)
             try:
                 # 1. Append inbound user message to history
                 session.add_message(Message(role=Role.USER, content=user_message))
@@ -216,10 +216,7 @@ class Runner:
                 )
 
             except Exception:
-                if hasattr(session, "rollback_to"):
-                    session.rollback_to(checkpoint_len)
-                else:
-                    session.history = session.history[:checkpoint_len]
+                session.restore_history(checkpoint_history)
                 raise
 
     def run(

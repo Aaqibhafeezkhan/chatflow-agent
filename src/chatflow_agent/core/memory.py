@@ -62,6 +62,10 @@ class SessionContext:
         """
         self.history = self.history[:checkpoint_len]
 
+    def restore_history(self, history: list[Message]) -> None:
+        """Restore a complete history snapshot, including entries pruned after it was taken."""
+        self.history = list(history)
+
     def _prune_history(self) -> None:
         """Keep dialogue history within max_turns by complete turns.
 
@@ -344,6 +348,38 @@ class SQLiteSessionContext(SessionContext):
                     (self.session_id, cutoff_id),
                 )
         super().rollback_to(checkpoint_len)
+
+    def restore_history(self, history: list[Message]) -> None:
+        """Restore a history snapshot in memory and persist it to SQLite."""
+        with _get_sqlite_connection(self.db_path) as conn:
+            conn.execute(
+                "DELETE FROM chatflow_messages WHERE session_id = ?",
+                (self.session_id,),
+            )
+            conn.executemany(
+                """
+                INSERT INTO chatflow_messages (session_id, role, content, message_json)
+                VALUES (?, ?, ?, ?)
+                """,
+                [
+                    (
+                        self.session_id,
+                        message.role.value,
+                        message.content,
+                        message.model_dump_json(),
+                    )
+                    for message in history
+                ],
+            )
+            conn.execute(
+                """
+                UPDATE chatflow_sessions
+                SET active_agent_name = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE session_id = ?
+                """,
+                (self.active_agent.name, self.session_id),
+            )
+        super().restore_history(history)
 
     def set_active_agent(self, agent: Agent) -> None:
         """Switch current active agent and persist the pointer to SQLite."""

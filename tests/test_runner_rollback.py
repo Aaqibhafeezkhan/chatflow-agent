@@ -6,7 +6,7 @@ import pytest
 
 from chatflow_agent.core.agent import Agent
 from chatflow_agent.core.engine import EngineTurnResult, GeminiEngine
-from chatflow_agent.core.memory import SQLiteSessionStore
+from chatflow_agent.core.memory import SessionStore, SQLiteSessionStore
 from chatflow_agent.core.runner import Runner
 from chatflow_agent.exceptions import ProviderError
 from chatflow_agent.types import Role, ToolCall
@@ -70,10 +70,34 @@ async def test_runner_rolls_back_in_memory_history_on_failure() -> None:
 
 
 @pytest.mark.asyncio
+async def test_runner_restores_pruned_history_on_failure() -> None:
+    """A failed turn must restore history that pruning removed from the snapshot."""
+    engine = FailingEngine(succeed_times=1)
+    agent = Agent(name="Bot", instructions="Test")
+    store = SessionStore(default_max_turns=1)
+    runner = Runner(starting_agent=agent, session_store=store, engine=engine)
+
+    await runner.run_async(session_id="user_pruned_rollback", user_message="Hello 1")
+    session = runner.get_session("user_pruned_rollback")
+    assert session is not None
+
+    with pytest.raises(ProviderError):
+        await runner.run_async(
+            session_id="user_pruned_rollback",
+            user_message="Hello 2 (fails after pruning)",
+        )
+
+    assert [message.content for message in session.history] == [
+        "Hello 1",
+        "Successful turn response",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_runner_rolls_back_sqlite_history_on_failure(tmp_path: Path) -> None:
     """SQLite session store must roll back messages from failed turn to disk."""
     db_file = tmp_path / "rollback_test.db"
-    store = SQLiteSessionStore(db_path=db_file)
+    store = SQLiteSessionStore(db_path=db_file, default_max_turns=1)
     engine = FailingEngine(succeed_times=1)
     agent = Agent(name="Bot", instructions="Test")
     runner = Runner(starting_agent=agent, session_store=store, engine=engine)
@@ -86,7 +110,7 @@ async def test_runner_rolls_back_sqlite_history_on_failure(tmp_path: Path) -> No
         await runner.run_async(session_id="user_sql_rb", user_message="Hello Turn 2 (will fail)")
 
     # Fresh reload from disk: verify only Turn 1 exists
-    store2 = SQLiteSessionStore(db_path=db_file)
+    store2 = SQLiteSessionStore(db_path=db_file, default_max_turns=1)
     reloaded = store2.get_or_create("user_sql_rb", default_agent=agent)
     assert len(reloaded.history) == 2
     assert reloaded.history[0].role == Role.USER

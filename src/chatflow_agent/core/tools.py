@@ -56,7 +56,9 @@ class Tool:
     ) -> None:
         self.func = func
         self.name = name or func.__name__
-        self.description = description or (inspect.getdoc(func) or "").strip() or f"Execute {self.name}"
+        self.description = (
+            description or (inspect.getdoc(func) or "").strip() or f"Execute {self.name}"
+        )
         self.signature = inspect.signature(func)
         self.is_async = inspect.iscoroutinefunction(func)
         self.parameters_schema = self._build_parameters_schema()
@@ -67,7 +69,10 @@ class Tool:
         required: list[str] = []
 
         for param_name, param in self.signature.parameters.items():
-            if param_name in ("self", "cls"):
+            if param_name in ("self", "cls") or param.kind in (
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.VAR_KEYWORD,
+            ):
                 continue
 
             gemini_type = _python_type_to_gemini_type(param.annotation)

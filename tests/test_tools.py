@@ -1,6 +1,5 @@
 """Tests for chatflow-agent tool introspection and execution engine."""
 
-
 from typing import Optional
 
 import pytest
@@ -125,7 +124,9 @@ async def test_async_tool_sync_execute_in_running_loop_raises_clear_error() -> N
         t.execute(order_id="ORD-999", tags=["test"])
 
     assert exc_info.value.tool_name == "async_sample_function"
-    assert "Cannot execute async tool 'async_sample_function' synchronously via execute()" in str(exc_info.value)
+    assert "Cannot execute async tool 'async_sample_function' synchronously via execute()" in str(
+        exc_info.value
+    )
     assert "Use 'await tool.execute_async(**kwargs)' instead." in str(exc_info.value)
 
 
@@ -143,3 +144,21 @@ async def test_sync_tool_execute_async_succeeds() -> None:
     result = await t.execute_async(query="async_thread_test", limit=3)
     assert result == {"query": "async_thread_test", "count": 3, "verbose": False}
 
+
+def test_variadic_parameters_are_not_exposed() -> None:
+    def search(query: str, *args: object, limit: int = 10, **kwargs: object) -> str:
+        return query
+
+    schema = Tool(search).parameters_schema
+    assert set(schema["properties"]) == {"query", "limit"}
+    assert schema["required"] == ["query"]
+    assert schema["properties"]["limit"]["default"] == 10
+
+
+def test_variadic_only_tool_has_no_declared_arguments() -> None:
+    def flexible(*args: object, **kwargs: object) -> str:
+        return "ok"
+
+    schema = Tool(flexible).parameters_schema
+    assert schema["properties"] == {}
+    assert schema["required"] == []

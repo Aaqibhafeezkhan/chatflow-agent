@@ -1,5 +1,7 @@
 """Tests for chatflow-agent tool introspection and execution engine."""
 
+import typing
+from collections.abc import Mapping, Sequence
 from typing import Optional
 
 import pytest
@@ -61,6 +63,72 @@ def test_tool_introspection_parameters() -> None:
 )
 def test_pep604_union_type_introspection(annotation: object, expected: str) -> None:
     assert _python_type_to_gemini_type(annotation) == expected
+
+
+@pytest.mark.parametrize(
+    ("annotation", "expected"),
+    [
+        (list, "ARRAY"),
+        (list[str], "ARRAY"),
+        (dict, "OBJECT"),
+        (dict[str, int], "OBJECT"),
+        (tuple, "ARRAY"),
+        (tuple[int, str], "ARRAY"),
+        (tuple[int, ...], "ARRAY"),
+        (set, "ARRAY"),
+        (set[str], "ARRAY"),
+        (frozenset, "ARRAY"),
+        (frozenset[str], "ARRAY"),
+        (Sequence, "ARRAY"),
+        (Sequence[str], "ARRAY"),
+        (Mapping, "OBJECT"),
+        (Mapping[str, int], "OBJECT"),
+        (typing.Tuple, "ARRAY"),  # noqa: UP006 - preserve legacy alias coverage
+        (typing.Tuple[int, ...], "ARRAY"),  # noqa: UP006 - preserve legacy alias coverage
+        (typing.Set, "ARRAY"),  # noqa: UP006 - preserve legacy alias coverage
+        (typing.Set[str], "ARRAY"),  # noqa: UP006 - preserve legacy alias coverage
+        (typing.FrozenSet, "ARRAY"),  # noqa: UP006 - preserve legacy alias coverage
+        (typing.FrozenSet[str], "ARRAY"),  # noqa: UP006 - preserve legacy alias coverage
+        (typing.Sequence, "ARRAY"),
+        (typing.Sequence[str], "ARRAY"),
+        (typing.Mapping, "OBJECT"),
+        (typing.Mapping[str, int], "OBJECT"),
+        (tuple[int, ...] | None, "ARRAY"),
+        (set[str] | None, "ARRAY"),
+        (frozenset[str] | None, "ARRAY"),
+        (Sequence[str] | None, "ARRAY"),
+        (Mapping[str, int] | None, "OBJECT"),
+        (Optional[Sequence[str]], "ARRAY"),  # noqa: UP045 - preserve legacy Optional coverage
+        (Optional[Mapping[str, int]], "OBJECT"),  # noqa: UP045 - preserve legacy Optional coverage
+        (Optional[frozenset[str]], "ARRAY"),  # noqa: UP045 - preserve legacy Optional coverage
+        (str, "STRING"),
+        (bytes, "STRING"),
+        (typing.Any, "STRING"),
+    ],
+)
+def test_container_type_introspection(annotation: object, expected: str) -> None:
+    assert _python_type_to_gemini_type(annotation) == expected
+
+
+def test_tool_container_parameters_schema() -> None:
+    def search(
+        coordinates: tuple[float, float],
+        tags: set[str],
+        excluded_tags: frozenset[str],
+        queries: Sequence[str],
+        filters: Mapping[str, int] | None = None,
+    ) -> None:
+        pass
+
+    schema = Tool(search).to_gemini_declaration()["parameters"]
+    assert schema["properties"] == {
+        "coordinates": {"type": "ARRAY"},
+        "tags": {"type": "ARRAY"},
+        "excluded_tags": {"type": "ARRAY"},
+        "queries": {"type": "ARRAY"},
+        "filters": {"type": "OBJECT", "default": None},
+    }
+    assert schema["required"] == ["coordinates", "tags", "excluded_tags", "queries"]
 
 
 def test_tool_async_introspection() -> None:

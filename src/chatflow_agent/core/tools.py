@@ -4,7 +4,7 @@ import asyncio
 import functools
 import inspect
 import types
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from typing import (
     Any,
     Union,
@@ -21,7 +21,12 @@ TYPE_MAP = {
     float: "NUMBER",
     bool: "BOOLEAN",
     list: "ARRAY",
+    tuple: "ARRAY",
+    set: "ARRAY",
+    frozenset: "ARRAY",
+    Sequence: "ARRAY",
     dict: "OBJECT",
+    Mapping: "OBJECT",
 }
 
 
@@ -38,12 +43,7 @@ def _python_type_to_gemini_type(py_type: Any) -> str:
             return _python_type_to_gemini_type(args[0])
         return "STRING"
 
-    if origin in (list, list):
-        return "ARRAY"
-    if origin in (dict, dict):
-        return "OBJECT"
-
-    return TYPE_MAP.get(py_type, "STRING")
+    return TYPE_MAP.get(origin or py_type, "STRING")
 
 
 class Tool:

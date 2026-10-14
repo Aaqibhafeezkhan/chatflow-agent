@@ -227,6 +227,50 @@ def test_resolve_engine_model_prefix_overrides_default_engine() -> None:
     assert resolve_engine(unknown_agent, default_engine=default) is default
 
 
+def test_resolve_engine_explicit_default_engine_overrides_prefix() -> None:
+    """An explicitly supplied engine wins over model-prefix heuristics (PR #39 regression)."""
+    explicit = GeminiEngine(api_key="explicit-key")
+
+    # A GPT model would resolve to OpenAIEngine via the prefix heuristic, but an
+    # explicitly supplied engine must take precedence.
+    openai_agent = Agent(name="Coder", model="gpt-4o", instructions="...")
+    assert (
+        resolve_engine(openai_agent, default_engine=explicit, prefer_default_engine=True)
+        is explicit
+    )
+
+    # Same for a Claude model.
+    claude_agent = Agent(name="Researcher", model="claude-3-5-sonnet", instructions="...")
+    assert (
+        resolve_engine(claude_agent, default_engine=explicit, prefer_default_engine=True)
+        is explicit
+    )
+
+    # An agent-level engine still outranks the explicitly supplied default.
+    agent_engine = GeminiEngine(api_key="agent-key")
+    pinned_agent = Agent(name="Pinned", model="gpt-4o", engine=agent_engine, instructions="...")
+    assert (
+        resolve_engine(pinned_agent, default_engine=explicit, prefer_default_engine=True)
+        is agent_engine
+    )
+
+
+@pytest.mark.asyncio
+async def test_runner_explicit_engine_honored_for_non_gemini_model() -> None:
+    """Runner(engine=...) must be honored even when the agent names a non-Gemini model (PR #39)."""
+
+    class MockEngine(GeminiEngine):
+        async def generate_turn_async(
+            self, agent: Agent, history: list[Message]
+        ) -> EngineTurnResult:
+            return EngineTurnResult(text="explicit engine used")
+
+    agent = Agent(name="Coder", model="gpt-4o", instructions="...")
+    runner = Runner(starting_agent=agent, engine=MockEngine())
+    response = await runner.run_async(session_id="explicit_engine_regression", user_message="hi")
+    assert response.content == "explicit engine used"
+
+
 @pytest.mark.asyncio
 async def test_heterogeneous_swarm_handoff() -> None:
     """Test multi-agent handoff where Agent A (Gemini) transfers to Agent B (Gemma local)."""

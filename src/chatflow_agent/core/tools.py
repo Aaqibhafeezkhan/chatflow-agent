@@ -1,6 +1,7 @@
 """Tool abstraction and introspection engine for chatflow-agent."""
 
 import asyncio
+import functools
 import inspect
 import types
 from collections.abc import Callable
@@ -55,13 +56,37 @@ class Tool:
         description: str | None = None,
     ) -> None:
         self.func = func
-        self.name = name or func.__name__
+        self.name = name or self._extract_name(func)
         self.description = (
-            description or (inspect.getdoc(func) or "").strip() or f"Execute {self.name}"
+            description or self._extract_description(func) or f"Execute {self.name}"
         )
         self.signature = inspect.signature(func)
-        self.is_async = inspect.iscoroutinefunction(func)
+        self.is_async = inspect.iscoroutinefunction(func) or (
+            callable(func) and inspect.iscoroutinefunction(getattr(func, "__call__", None))  # noqa: B004
+        )
         self.parameters_schema = self._build_parameters_schema()
+
+    @staticmethod
+    def _extract_name(func: Callable[..., Any]) -> str:
+        """Extract a readable name from a function, partial, or callable instance."""
+        name = getattr(func, "__name__", None)
+        if isinstance(name, str):
+            return name
+        underlying = getattr(func, "func", None)
+        underlying_name = getattr(underlying, "__name__", None)
+        if isinstance(underlying_name, str):
+            return underlying_name
+        return type(func).__name__
+
+    @staticmethod
+    def _extract_description(func: Callable[..., Any]) -> str:
+        """Extract docstring from a function, partial, or callable instance."""
+        doc = inspect.getdoc(func)
+        if isinstance(func, functools.partial) and hasattr(func, "func"):
+            underlying_doc = inspect.getdoc(func.func)
+            if underlying_doc:
+                return underlying_doc.strip()
+        return (doc or "").strip()
 
     def _build_parameters_schema(self) -> dict[str, Any]:
         """Introspect function signature and generate schema for parameters."""

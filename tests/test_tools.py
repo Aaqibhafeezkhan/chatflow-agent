@@ -162,3 +162,57 @@ def test_variadic_only_tool_has_no_declared_arguments() -> None:
     schema = Tool(flexible).parameters_schema
     assert schema["properties"] == {}
     assert schema["required"] == []
+
+
+def test_partial_function_tool() -> None:
+    """Tool works with functools.partial instances that lack __name__."""
+    import functools
+
+    def greet(greeting: str, name: str) -> str:
+        """Send a greeting to a user."""
+        return f"{greeting}, {name}!"
+
+    say_hello = functools.partial(greet, "Hello")
+    t = Tool(say_hello)
+    assert t.name == "greet"
+    assert "Send a greeting" in t.description
+    assert t.is_async is False
+    assert "name" in t.parameters_schema["required"]
+    assert "greeting" not in t.parameters_schema["properties"]
+    assert t.execute(name="Alice") == "Hello, Alice!"
+
+
+def test_callable_instance_tool() -> None:
+    """Tool works with class instances implementing __call__ without __name__."""
+
+    class Greeter:
+        """A class that greets people."""
+
+        def __call__(self, name: str) -> str:
+            return f"Welcome, {name}!"
+
+    greeter = Greeter()
+    t = Tool(greeter)
+    assert t.name == "Greeter"
+    assert "A class that greets people" in t.description
+    assert t.is_async is False
+    assert t.execute(name="Bob") == "Welcome, Bob!"
+
+
+@pytest.mark.asyncio
+async def test_async_callable_instance_tool() -> None:
+    """Tool detects async on callable class instances."""
+
+    class AsyncMultiplier:
+        """Multiplies asynchronously."""
+
+        async def __call__(self, x: int) -> int:
+            return x * 3
+
+    m = AsyncMultiplier()
+    t = Tool(m)
+    assert t.name == "AsyncMultiplier"
+    assert t.is_async is True
+    res = await t.execute_async(x=5)
+    assert res == 15
+

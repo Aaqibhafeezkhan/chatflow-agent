@@ -122,10 +122,15 @@ class Agent:
         return Tool(func=handoff_executor, name=tool_name, description=desc)
 
     def get_all_tools(self) -> list[Tool]:
-        """Return all user tools combined with synthetic handoff tools."""
+        """Combine tools, keeping user tools and the first handoff for each name."""
         combined: list[Tool] = list(self.tools)
+        tool_names = {t.name for t in combined}
         for peer in self.handoffs:
+            tool_name = _sanitize_tool_name(peer.name)
+            if tool_name in tool_names:
+                continue
             combined.append(self._create_handoff_tool(peer))
+            tool_names.add(tool_name)
         return combined
 
     def __repr__(self) -> str:

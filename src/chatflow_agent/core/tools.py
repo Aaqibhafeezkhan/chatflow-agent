@@ -22,6 +22,7 @@ TYPE_MAP = {
     list: "ARRAY",
     tuple: "ARRAY",
     set: "ARRAY",
+    frozenset: "ARRAY",
     Sequence: "ARRAY",
     dict: "OBJECT",
     Mapping: "OBJECT",

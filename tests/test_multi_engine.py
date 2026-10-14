@@ -200,6 +200,77 @@ def test_resolve_engine_heuristic() -> None:
     assert isinstance(resolve_engine(agent_gemini), GeminiEngine)
 
 
+def test_resolve_engine_model_prefix_overrides_default_engine() -> None:
+    """A model naming a concrete non-Gemini provider must win over default_engine (issue #38)."""
+    default = GeminiEngine(api_key="default-key")
+
+    # Claude model resolves to Anthropic even when a Gemini default engine is present.
+    claude_agent = Agent(name="Researcher", model="claude-3-5-sonnet", instructions="...")
+    assert isinstance(resolve_engine(claude_agent, default_engine=default), AnthropicEngine)
+
+    # OpenAI-compatible model resolves to OpenAI despite the Gemini default engine.
+    openai_agent = Agent(name="Coder", model="gpt-4o", instructions="...")
+    assert isinstance(resolve_engine(openai_agent, default_engine=default), OpenAIEngine)
+
+    # Grok model resolves to the xAI endpoint rather than the default engine.
+    grok_agent = Agent(name="Grokster", model="grok-2", instructions="...")
+    grok_engine = resolve_engine(grok_agent, default_engine=default)
+    assert isinstance(grok_engine, OpenAIEngine)
+    assert grok_engine.base_url == "https://api.x.ai/v1"
+
+    # A Gemini model still honors the provided default engine (Runner/mock behavior).
+    gemini_agent = Agent(name="Planner", model="gemini-2.5-flash", instructions="...")
+    assert resolve_engine(gemini_agent, default_engine=default) is default
+
+    # An unrecognized model also falls back to the provided default engine.
+    unknown_agent = Agent(name="Mystery", model="my-custom-model", instructions="...")
+    assert resolve_engine(unknown_agent, default_engine=default) is default
+
+
+def test_resolve_engine_explicit_default_engine_overrides_prefix() -> None:
+    """An explicitly supplied engine wins over model-prefix heuristics (PR #39 regression)."""
+    explicit = GeminiEngine(api_key="explicit-key")
+
+    # A GPT model would resolve to OpenAIEngine via the prefix heuristic, but an
+    # explicitly supplied engine must take precedence.
+    openai_agent = Agent(name="Coder", model="gpt-4o", instructions="...")
+    assert (
+        resolve_engine(openai_agent, default_engine=explicit, prefer_default_engine=True)
+        is explicit
+    )
+
+    # Same for a Claude model.
+    claude_agent = Agent(name="Researcher", model="claude-3-5-sonnet", instructions="...")
+    assert (
+        resolve_engine(claude_agent, default_engine=explicit, prefer_default_engine=True)
+        is explicit
+    )
+
+    # An agent-level engine still outranks the explicitly supplied default.
+    agent_engine = GeminiEngine(api_key="agent-key")
+    pinned_agent = Agent(name="Pinned", model="gpt-4o", engine=agent_engine, instructions="...")
+    assert (
+        resolve_engine(pinned_agent, default_engine=explicit, prefer_default_engine=True)
+        is agent_engine
+    )
+
+
+@pytest.mark.asyncio
+async def test_runner_explicit_engine_honored_for_non_gemini_model() -> None:
+    """Runner(engine=...) must be honored even when the agent names a non-Gemini model (PR #39)."""
+
+    class MockEngine(GeminiEngine):
+        async def generate_turn_async(
+            self, agent: Agent, history: list[Message]
+        ) -> EngineTurnResult:
+            return EngineTurnResult(text="explicit engine used")
+
+    agent = Agent(name="Coder", model="gpt-4o", instructions="...")
+    runner = Runner(starting_agent=agent, engine=MockEngine())
+    response = await runner.run_async(session_id="explicit_engine_regression", user_message="hi")
+    assert response.content == "explicit engine used"
+
+
 @pytest.mark.asyncio
 async def test_heterogeneous_swarm_handoff() -> None:
     """Test multi-agent handoff where Agent A (Gemini) transfers to Agent B (Gemma local)."""

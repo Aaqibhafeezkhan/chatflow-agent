@@ -35,6 +35,9 @@ class Runner:
         self.starting_agent = starting_agent
         self.session_store: BaseSessionStore | SessionStore = session_store or SessionStore()
         self.engine = engine or GeminiEngine(api_key=api_key)
+        # Remember whether the caller supplied the engine explicitly: an explicit
+        # engine must take precedence over the model-prefix heuristics.
+        self._engine_provided = engine is not None
         self.max_handoffs_per_turn = max_handoffs_per_turn
         self.max_tool_iterations = max_tool_iterations
 
@@ -87,7 +90,11 @@ class Runner:
                 # 2. Main agent execution loop
                 for _ in range(self.max_tool_iterations):
                     current_agent = session.active_agent
-                    active_engine = resolve_engine(current_agent, default_engine=self.engine)
+                    active_engine = resolve_engine(
+                        current_agent,
+                        default_engine=self.engine,
+                        prefer_default_engine=self._engine_provided,
+                    )
                     turn_result = await active_engine.generate_turn_async(
                         agent=current_agent,
                         history=session.history,

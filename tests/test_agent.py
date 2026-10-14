@@ -88,3 +88,44 @@ def test_agent_synthetic_handoff_tools() -> None:
     assert isinstance(result, Handoff)
     assert result.target_agent_name == "Billing Agent"
     assert result.reason == "Customer wants refund"
+
+
+def test_agent_user_tool_takes_precedence_over_synthetic_handoff() -> None:
+    billing_agent = Agent(name="Billing", instructions="Handle invoices.")
+    tech_agent = Agent(name="Technical Support", instructions="Troubleshoot issues.")
+    agent = Agent(name="Triage", instructions="Route users.", handoffs=[billing_agent, tech_agent])
+
+    @agent.tool
+    def transfer_to_billing(account_id: str) -> str:
+        return f"Custom billing route for {account_id}"
+
+    for _ in range(2):
+        all_tools = agent.get_all_tools()
+        assert [t.name for t in all_tools] == [
+            "transfer_to_billing",
+            "transfer_to_technical_support",
+        ]
+        assert all_tools[0] is transfer_to_billing
+        assert all_tools[0].execute(account_id="demo-1") == "Custom billing route for demo-1"
+        assert all_tools[0].parameters_schema["required"] == ["account_id"]
+
+    assert agent.tools == [transfer_to_billing]
+    assert agent.handoffs == [billing_agent, tech_agent]
+
+
+def test_agent_sanitized_handoff_name_collision_keeps_first_peer() -> None:
+    billing_agent = Agent(name="Billing Team", instructions="Handle invoices.")
+    other_billing_agent = Agent(name="billing-team", instructions="Handle subscriptions.")
+    agent = Agent(
+        name="Triage",
+        instructions="Route users.",
+        handoffs=[billing_agent, other_billing_agent],
+    )
+
+    all_tools = agent.get_all_tools()
+
+    assert [t.name for t in all_tools] == ["transfer_to_billing_team"]
+    result = all_tools[0].execute(reason="Invoice query")
+    assert isinstance(result, Handoff)
+    assert result.target_agent_name == "Billing Team"
+    assert result.reason == "Invoice query"

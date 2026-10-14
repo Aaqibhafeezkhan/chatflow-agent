@@ -151,9 +151,6 @@ class Runner:
                                         f"Handoff target agent '{target_name}' is not registered in Runner."
                                     )
 
-                                # Switch active agent pointer
-                                session.set_active_agent(target_agent)
-                                last_handoff = raw_output
                                 handoff_counter += 1
 
                                 if handoff_counter > self.max_handoffs_per_turn:
@@ -167,6 +164,8 @@ class Runner:
                                     )
                                     break
 
+                                session.set_active_agent(target_agent, raw_output.context_updates)
+                                last_handoff = raw_output
                                 tool_results.append(
                                     ToolResult(
                                         tool_call_id=call.id,

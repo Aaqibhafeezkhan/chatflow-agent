@@ -5,8 +5,9 @@ import pytest
 
 from chatflow_agent.core.agent import Agent
 from chatflow_agent.core.engine import EngineTurnResult, GeminiEngine
+from chatflow_agent.core.memory import SessionStore
 from chatflow_agent.core.runner import Runner
-from chatflow_agent.types import Message, Role, ToolCall
+from chatflow_agent.types import Handoff, Message, Role, ToolCall
 
 
 class MockEngine(GeminiEngine):
@@ -130,6 +131,105 @@ async def test_runner_multiagent_handoff_flow() -> None:
     session = runner.get_session("user_3")
     assert session is not None
     assert session.active_agent.name == "Billing Agent"
+
+
+@pytest.mark.asyncio
+async def test_runner_handoff_context_updates_are_available_to_recipient_tools() -> None:
+    billing_agent = Agent(name="Billing Agent", instructions="Handle invoices and refunds.")
+    triage_agent = Agent(
+        name="Triage Agent",
+        instructions="Route users to the correct specialist.",
+        handoffs=[billing_agent],
+    )
+
+    @triage_agent.tool
+    def transfer_with_context() -> Handoff:
+        return Handoff(
+            target_agent_name="Billing Agent",
+            context_updates={"customer_tier": "VIP", "invoice_id": "INV-101"},
+        )
+
+    session_store = SessionStore()
+    session = session_store.get_or_create(
+        session_id="user_context_handoff",
+        default_agent=triage_agent,
+        metadata={"customer_id": "C-1", "customer_tier": "standard"},
+    )
+
+    @billing_agent.tool
+    def get_customer_context() -> dict[str, str]:
+        return {
+            "customer_id": session.metadata["customer_id"],
+            "customer_tier": session.metadata["customer_tier"],
+            "invoice_id": session.metadata["invoice_id"],
+        }
+
+    mock_engine = MockEngine([
+        EngineTurnResult(
+            tool_calls=[ToolCall(id="call_handoff", name="transfer_with_context", args={})]
+        ),
+        EngineTurnResult(
+            tool_calls=[ToolCall(id="call_context", name="get_customer_context", args={})]
+        ),
+        EngineTurnResult(text="Billing context received."),
+    ])
+    runner = Runner(starting_agent=triage_agent, session_store=session_store, engine=mock_engine)
+
+    response = await runner.run_async(
+        session_id="user_context_handoff", user_message="Please review invoice INV-101."
+    )
+
+    assert response.active_agent_name == "Billing Agent"
+    assert session.metadata == {
+        "customer_id": "C-1",
+        "customer_tier": "VIP",
+        "invoice_id": "INV-101",
+    }
+
+
+@pytest.mark.asyncio
+async def test_runner_does_not_apply_context_updates_for_rejected_handoff() -> None:
+    billing_agent = Agent(name="Billing Agent", instructions="Handle invoices and refunds.")
+    triage_agent = Agent(
+        name="Triage Agent",
+        instructions="Route users to the correct specialist.",
+        handoffs=[billing_agent],
+    )
+
+    @triage_agent.tool
+    def transfer_with_context() -> Handoff:
+        return Handoff(
+            target_agent_name="Billing Agent",
+            context_updates={"customer_tier": "VIP"},
+        )
+
+    session_store = SessionStore()
+    session = session_store.get_or_create(
+        session_id="user_rejected_handoff",
+        default_agent=triage_agent,
+        metadata={"customer_tier": "standard"},
+    )
+    mock_engine = MockEngine([
+        EngineTurnResult(
+            tool_calls=[ToolCall(id="call_handoff", name="transfer_with_context", args={})]
+        ),
+        EngineTurnResult(text="The transfer limit was reached."),
+    ])
+    runner = Runner(
+        starting_agent=triage_agent,
+        session_store=session_store,
+        engine=mock_engine,
+        max_handoffs_per_turn=0,
+    )
+
+    response = await runner.run_async(
+        session_id="user_rejected_handoff", user_message="Please escalate this invoice."
+    )
+
+    assert response.active_agent_name == "Triage Agent"
+    assert response.handoff is None
+    assert session.active_agent.name == "Triage Agent"
+    assert session.metadata == {"customer_tier": "standard"}
 
 
 def test_runner_sync_wrapper() -> None:

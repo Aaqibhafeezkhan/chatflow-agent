@@ -46,9 +46,15 @@ class SessionContext:
         self.history.append(message)
         self._prune_history()
 
-    def set_active_agent(self, agent: Agent) -> None:
-        """Switch the current active agent handling this session."""
+    def set_active_agent(
+        self,
+        agent: Agent,
+        context_updates: dict[str, Any] | None = None,
+    ) -> None:
+        """Switch the active agent and merge any state forwarded with the handoff."""
         self.active_agent = agent
+        if context_updates:
+            self.metadata.update(context_updates)
 
     def clear_history(self) -> None:
         """Reset the conversation dialogue history."""
@@ -381,14 +387,26 @@ class SQLiteSessionContext(SessionContext):
             )
         super().restore_history(history)
 
-    def set_active_agent(self, agent: Agent) -> None:
-        """Switch current active agent and persist the pointer to SQLite."""
-        super().set_active_agent(agent)
+    def set_active_agent(
+        self,
+        agent: Agent,
+        context_updates: dict[str, Any] | None = None,
+    ) -> None:
+        """Switch active agent and persist the handoff state to SQLite."""
+        updated_metadata = dict(self.metadata)
+        if context_updates:
+            updated_metadata.update(context_updates)
+        metadata_json = json.dumps(updated_metadata)
         with _get_sqlite_connection(self.db_path) as conn:
             conn.execute(
-                "UPDATE chatflow_sessions SET active_agent_name = ?, updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
-                (agent.name, self.session_id),
+                """
+                UPDATE chatflow_sessions
+                SET active_agent_name = ?, metadata_json = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE session_id = ?
+                """,
+                (agent.name, metadata_json, self.session_id),
             )
+        super().set_active_agent(agent, context_updates)
 
     def clear_history(self) -> None:
         """Reset conversation dialogue history in memory and database."""

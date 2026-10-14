@@ -14,7 +14,7 @@ from chatflow_agent import (
 from chatflow_agent.core.agent import Agent
 from chatflow_agent.core.engines import EngineTurnResult, GeminiEngine
 from chatflow_agent.memory import SQLiteSessionStore as SQLiteStoreFromMemory
-from chatflow_agent.types import Message, Role, ToolCall
+from chatflow_agent.types import Handoff, Message, Role, ToolCall
 
 
 class MockEngine(GeminiEngine):
@@ -127,6 +127,98 @@ def test_sqlite_active_agent_switch_persistence(tmp_path: Path, test_agents: tup
 
     ctx2 = store2.get_or_create("user_handoff", default_agent=triage)
     assert ctx2.active_agent.name == "Billing"
+
+
+def test_sqlite_handoff_state_is_unchanged_when_context_cannot_be_serialized(
+    tmp_path: Path, test_agents: tuple[Agent, Agent]
+) -> None:
+    triage, billing = test_agents
+    db_path = tmp_path / "invalid_handoff_context.db"
+    store = SQLiteSessionStore(db_path=db_path)
+    session = store.get_or_create(
+        "user_invalid_context",
+        default_agent=triage,
+        metadata={"customer_tier": "standard"},
+    )
+
+    with pytest.raises(TypeError, match="not JSON serializable"):
+        session.set_active_agent(billing, {"invalid": object()})
+
+    assert session.active_agent.name == "Triage"
+    assert session.metadata == {"customer_tier": "standard"}
+
+    reloaded_store = SQLiteSessionStore(db_path=db_path)
+    reloaded_store.set_agent_resolver(lambda name: {"Triage": triage, "Billing": billing}.get(name))
+    reloaded_session = reloaded_store.get_or_create(
+        "user_invalid_context", default_agent=triage
+    )
+    assert reloaded_session.active_agent.name == "Triage"
+    assert reloaded_session.metadata == {"customer_tier": "standard"}
+
+
+@pytest.mark.asyncio
+async def test_sqlite_handoff_context_updates_reach_tools_and_survive_restart(
+    tmp_path: Path, test_agents: tuple[Agent, Agent]
+) -> None:
+    triage, billing = test_agents
+    db_path = tmp_path / "handoff_context.db"
+    store1 = SQLiteSessionStore(db_path=db_path)
+    observed_context: dict[str, str] = {}
+
+    @triage.tool
+    def transfer_with_context() -> Handoff:
+        return Handoff(
+            target_agent_name="Billing",
+            context_updates={"customer_tier": "VIP", "invoice_id": "INV-101"},
+        )
+
+    @billing.tool
+    def get_customer_context() -> dict[str, str]:
+        session = store1.get_or_create("customer_101", default_agent=triage)
+        context = {
+            "customer_id": session.metadata["customer_id"],
+            "customer_tier": session.metadata["customer_tier"],
+            "invoice_id": session.metadata["invoice_id"],
+        }
+        observed_context.update(context)
+        return context
+
+    mock_engine = MockEngine([
+        EngineTurnResult(
+            tool_calls=[ToolCall(id="call_handoff", name="transfer_with_context", args={})]
+        ),
+        EngineTurnResult(
+            tool_calls=[ToolCall(id="call_context", name="get_customer_context", args={})]
+        ),
+        EngineTurnResult(text="Billing context received."),
+    ])
+    runner1 = Runner(starting_agent=triage, session_store=store1, engine=mock_engine)
+
+    response = await runner1.run_async(
+        session_id="customer_101",
+        user_message="Please review invoice INV-101.",
+        metadata={"customer_id": "C-1", "customer_tier": "standard"},
+    )
+
+    expected_context = {
+        "customer_id": "C-1",
+        "customer_tier": "VIP",
+        "invoice_id": "INV-101",
+    }
+    assert response.active_agent_name == "Billing"
+    assert observed_context == expected_context
+
+    store2 = SQLiteSessionStore(db_path=db_path)
+    runner2 = Runner(
+        starting_agent=triage,
+        session_store=store2,
+        engine=MockEngine([EngineTurnResult(text="Restored session.")]),
+    )
+    restored_session = runner2.get_session("customer_101")
+
+    assert restored_session is not None
+    assert restored_session.active_agent.name == "Billing"
+    assert restored_session.metadata == expected_context
 
 
 def test_sqlite_delete_and_clear_history(tmp_path: Path, test_agents: tuple[Agent, Agent]) -> None:

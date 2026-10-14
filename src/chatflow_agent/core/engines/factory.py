@@ -14,7 +14,6 @@ _OPENAI_COMPATIBLE_PREFIXES = (
     "gpt-", "o1", "o3", "chatgpt-", "text-embedding-", "dall-e"
 )
 _CLAUDE_PREFIXES = ("claude-",)
-_GEMINI_PREFIXES = ("gemini-",)
 _OLLAMA_PREFIXES = ("gemma", "llama", "mistral", "qwen", "phi")
 
 
@@ -23,10 +22,14 @@ def resolve_engine(agent: "Agent", default_engine: BaseEngine | None = None) -> 
 
     Resolution order:
     1. agent.engine if explicitly attached.
-    2. agent.provider if explicitly set ('gemini', 'openai', 'grok', 'xai', 'ollama', 'gemma', 'anthropic', 'claude').
+    2. agent.provider if explicitly set (gemini, openai, grok, xai, ollama, gemma, anthropic, claude).
     3. agent.base_url or agent.api_key if custom connection options are set on agent.
-    4. default_engine if provided (e.g. from Runner or test mock).
-    5. Heuristic matching on agent.model name prefix.
+    4. Heuristic matching on the agent.model name prefix when it names a concrete
+       non-Gemini provider. These must take precedence over a generic
+       ``default_engine`` so that a model such as ``claude-3-5-sonnet`` is not
+       silently routed to the default (Gemini) engine.
+    5. default_engine if provided (e.g. from Runner or test mock). Applies to
+       Gemini models and to models without a recognizable provider prefix.
     6. Default GeminiEngine.
     """
     # 1. Custom engine explicitly on agent
@@ -36,6 +39,7 @@ def resolve_engine(agent: "Agent", default_engine: BaseEngine | None = None) -> 
     provider = (getattr(agent, "provider", None) or "").lower()
     api_key = getattr(agent, "api_key", None)
     base_url = getattr(agent, "base_url", None)
+    model = (getattr(agent, "model", None) or "").lower()
 
     # 2. Provider explicit match
     if provider in ("gemini", "google"):
@@ -51,15 +55,9 @@ def resolve_engine(agent: "Agent", default_engine: BaseEngine | None = None) -> 
     if base_url:
         return OpenAIEngine(api_key=api_key, base_url=base_url, provider="openai")
 
-    # 4. If Runner provided a default_engine (e.g. MockEngine or pre-configured engine), respect it!
-    if default_engine is not None:
-        return default_engine
-
-    # 5. Model prefix heuristics when no default_engine was given
-    model = (agent.model or "").lower()
-    if any(model.startswith(p) for p in _GEMINI_PREFIXES):
-        return GeminiEngine(api_key=api_key)
-
+    # 4. Model prefix heuristics for a concrete non-Gemini provider. A model name
+    #    that identifies a specific provider is more precise than a generic
+    #    default engine, so it must win over ``default_engine`` below.
     if any(model.startswith(p) for p in _CLAUDE_PREFIXES):
         return AnthropicEngine(api_key=api_key, base_url=base_url or "https://api.anthropic.com/v1")
 
@@ -72,4 +70,10 @@ def resolve_engine(agent: "Agent", default_engine: BaseEngine | None = None) -> 
     if any(model.startswith(p) for p in _OLLAMA_PREFIXES):
         return OpenAIEngine(api_key=api_key, base_url=base_url, provider="ollama")
 
+    # 5. If Runner provided a default_engine (e.g. MockEngine or pre-configured
+    #    engine), respect it for Gemini models and unrecognized models.
+    if default_engine is not None:
+        return default_engine
+
+    # 6. Ultimate fallback: a Gemini engine.
     return GeminiEngine(api_key=api_key)

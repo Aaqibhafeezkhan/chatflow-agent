@@ -200,6 +200,33 @@ def test_resolve_engine_heuristic() -> None:
     assert isinstance(resolve_engine(agent_gemini), GeminiEngine)
 
 
+def test_resolve_engine_model_prefix_overrides_default_engine() -> None:
+    """A model naming a concrete non-Gemini provider must win over default_engine (issue #38)."""
+    default = GeminiEngine(api_key="default-key")
+
+    # Claude model resolves to Anthropic even when a Gemini default engine is present.
+    claude_agent = Agent(name="Researcher", model="claude-3-5-sonnet", instructions="...")
+    assert isinstance(resolve_engine(claude_agent, default_engine=default), AnthropicEngine)
+
+    # OpenAI-compatible model resolves to OpenAI despite the Gemini default engine.
+    openai_agent = Agent(name="Coder", model="gpt-4o", instructions="...")
+    assert isinstance(resolve_engine(openai_agent, default_engine=default), OpenAIEngine)
+
+    # Grok model resolves to the xAI endpoint rather than the default engine.
+    grok_agent = Agent(name="Grokster", model="grok-2", instructions="...")
+    grok_engine = resolve_engine(grok_agent, default_engine=default)
+    assert isinstance(grok_engine, OpenAIEngine)
+    assert grok_engine.base_url == "https://api.x.ai/v1"
+
+    # A Gemini model still honors the provided default engine (Runner/mock behavior).
+    gemini_agent = Agent(name="Planner", model="gemini-2.5-flash", instructions="...")
+    assert resolve_engine(gemini_agent, default_engine=default) is default
+
+    # An unrecognized model also falls back to the provided default engine.
+    unknown_agent = Agent(name="Mystery", model="my-custom-model", instructions="...")
+    assert resolve_engine(unknown_agent, default_engine=default) is default
+
+
 @pytest.mark.asyncio
 async def test_heterogeneous_swarm_handoff() -> None:
     """Test multi-agent handoff where Agent A (Gemini) transfers to Agent B (Gemma local)."""

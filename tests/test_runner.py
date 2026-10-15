@@ -5,6 +5,7 @@ import pytest
 
 from chatflow_agent.core.agent import Agent
 from chatflow_agent.core.engine import EngineTurnResult, GeminiEngine
+from chatflow_agent.core.engines import BaseEngine
 from chatflow_agent.core.memory import SessionStore
 from chatflow_agent.core.runner import Runner
 from chatflow_agent.types import Handoff, Message, Role, ToolCall
@@ -230,6 +231,93 @@ async def test_runner_does_not_apply_context_updates_for_rejected_handoff() -> N
     assert response.handoff is None
     assert session.active_agent.name == "Triage Agent"
     assert session.metadata == {"customer_tier": "standard"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("max_handoffs", [0, 1])
+@pytest.mark.parametrize("max_tool_iterations", [1, 2])
+async def test_runner_handoff_limit_preserves_tool_result_parity(
+    max_handoffs: int, max_tool_iterations: int
+) -> None:
+    billing_agent = Agent(name="Billing", instructions="Handle invoices.")
+    triage_agent = Agent(
+        name="Triage", instructions="Route requests.", handoffs=[billing_agent]
+    )
+    executed: list[str] = []
+
+    @triage_agent.tool
+    def record_action(value: str) -> str:
+        executed.append(value)
+        return value
+
+    @triage_agent.tool
+    def transfer_with_context(value: str) -> Handoff:
+        executed.append(value)
+        return Handoff(target_agent_name="Billing", context_updates={"transfer": value})
+
+    calls = [ToolCall(id="before", name="record_action", args={"value": "before"})]
+    if max_handoffs:
+        calls.append(
+            ToolCall(id="accepted", name="transfer_with_context", args={"value": "accepted"})
+        )
+    calls.extend([
+        ToolCall(id="rejected", name="transfer_with_context", args={"value": "rejected"}),
+        ToolCall(id="skipped_action", name="record_action", args={"value": "after"}),
+        ToolCall(id="skipped_handoff", name="transfer_with_context", args={"value": "after"}),
+    ])
+
+    class ValidatingEngine(BaseEngine):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def generate_turn_async(
+            self, agent: Agent, history: list[Message]
+        ) -> EngineTurnResult:
+            self.calls += 1
+            # A provider must see a result for every call before the next generation.
+            if history[-1].role == Role.TOOL:
+                assert history[-1].tool_results is not None
+                assert [result.tool_call_id for result in history[-1].tool_results] == [
+                    call.id for call in calls
+                ]
+                return EngineTurnResult(text="The transfer limit was reached.")
+            return EngineTurnResult(tool_calls=calls)
+
+    engine = ValidatingEngine()
+    runner = Runner(
+        starting_agent=triage_agent,
+        engine=engine,
+        max_handoffs_per_turn=max_handoffs,
+        max_tool_iterations=max_tool_iterations,
+    )
+
+    response = await runner.run_async(session_id="limit_parity", user_message="Help with billing.")
+
+    session = runner.get_session("limit_parity")
+    assert session is not None
+    results = session.history[2].tool_results
+    assert results is not None
+    assert [(result.tool_call_id, result.name) for result in results] == [
+        (call.id, call.name) for call in calls
+    ]
+    assert results[0].content == "before"
+    assert [result.is_error for result in results] == [False] * (1 + max_handoffs) + [True] * 3
+    assert "Maximum agent transfers exceeded" in results[-3].content
+    assert all("skipped" in result.content.lower() for result in results[-2:])
+    assert executed == ["before"] + (["accepted"] if max_handoffs else []) + ["rejected"]
+    assert response.tool_calls_executed == [call.name for call in calls[:-2]]
+    assert response.active_agent_name == ("Billing" if max_handoffs else "Triage")
+    assert session.metadata == ({"transfer": "accepted"} if max_handoffs else {})
+    if max_handoffs:
+        assert response.handoff is not None
+        assert response.handoff.context_updates == {"transfer": "accepted"}
+    else:
+        assert response.handoff is None
+    if max_tool_iterations == 1:
+        assert response.content.startswith("Execution iteration limit reached")
+    else:
+        assert response.content == "The transfer limit was reached."
+    assert engine.calls == max_tool_iterations
 
 
 def test_runner_sync_wrapper() -> None:

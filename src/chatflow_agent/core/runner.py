@@ -114,7 +114,7 @@ class Runner:
                         tool_results: list[ToolResult] = []
                         available_tools = {t.name: t for t in current_agent.get_all_tools()}
 
-                        for call in turn_result.tool_calls:
+                        for call_index, call in enumerate(turn_result.tool_calls):
                             tool_calls_executed.append(call.name)
                             tool_instance = available_tools.get(call.name)
 
@@ -168,6 +168,16 @@ class Runner:
                                             content="Maximum agent transfers exceeded for a single turn.",
                                             is_error=True,
                                         )
+                                    )
+                                    # Preserve call/result parity without executing the skipped tools.
+                                    tool_results.extend(
+                                        ToolResult(
+                                            tool_call_id=skipped_call.id,
+                                            name=skipped_call.name,
+                                            content="Tool skipped because the maximum agent transfers were exceeded for this turn.",
+                                            is_error=True,
+                                        )
+                                        for skipped_call in turn_result.tool_calls[call_index + 1 :]
                                     )
                                     break
 

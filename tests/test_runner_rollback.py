@@ -8,8 +8,8 @@ from chatflow_agent.core.agent import Agent
 from chatflow_agent.core.engine import EngineTurnResult, GeminiEngine
 from chatflow_agent.core.memory import SessionStore, SQLiteSessionStore
 from chatflow_agent.core.runner import Runner
-from chatflow_agent.exceptions import ProviderError
-from chatflow_agent.types import Role, ToolCall
+from chatflow_agent.exceptions import AgentHandoffError, ProviderError
+from chatflow_agent.types import Handoff, Role, ToolCall
 
 
 class FailingEngine(GeminiEngine):
@@ -138,3 +138,196 @@ async def test_runner_rolls_back_partial_tool_sequence_on_failure() -> None:
 
     # History must be completely empty (rolled back to 0 messages)
     assert len(session.history) == 0
+
+
+@pytest.mark.asyncio
+async def test_runner_rolls_back_active_agent_and_metadata_in_memory_on_failure() -> None:
+    """If a turn fails after a handoff or metadata mutation, active_agent and metadata must be restored."""
+    billing_agent = Agent(name="Billing", instructions="Handle billing.")
+    triage_agent = Agent(
+        name="Triage",
+        instructions="Route users.",
+        handoffs=[billing_agent],
+    )
+
+    store = SessionStore()
+    session = store.get_or_create(
+        "user_agent_meta_rb",
+        default_agent=triage_agent,
+        metadata={"tier": "standard", "flags": ["initial"]},
+    )
+
+    @triage_agent.tool
+    def escalate_to_billing() -> Handoff:
+        session.metadata["flags"].append("mutated_in_tool")
+        return Handoff(
+            target_agent_name="Billing",
+            context_updates={"tier": "vip", "escalated": True},
+        )
+
+    engine = ToolThenFailEngine()
+    engine.calls = 0
+
+    class HandoffThenFailEngine(GeminiEngine):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
+        async def generate_turn_async(self, agent, history):
+            self.calls += 1
+            if self.calls == 1:
+                return EngineTurnResult(
+                    text="",
+                    tool_calls=[ToolCall(id="h1", name="escalate_to_billing", args={})],
+                )
+            raise ProviderError("Recipient agent LLM turn failed")
+
+    runner = Runner(
+        starting_agent=triage_agent,
+        session_store=store,
+        engine=HandoffThenFailEngine(),
+    )
+
+    with pytest.raises(ProviderError):
+        await runner.run_async(
+            session_id="user_agent_meta_rb",
+            user_message="Escalate my billing issue",
+        )
+
+    assert session.active_agent is triage_agent
+    assert session.active_agent.name == "Triage"
+    assert session.metadata == {"tier": "standard", "flags": ["initial"]}
+    assert session.history == []
+
+
+@pytest.mark.asyncio
+async def test_runner_rolls_back_active_agent_and_metadata_on_unregistered_handoff() -> None:
+    """If a second handoff in the same batch targets an unregistered agent, prior handoff state rolls back."""
+    billing_agent = Agent(name="Billing", instructions="Handle billing.")
+    triage_agent = Agent(
+        name="Triage",
+        instructions="Route users.",
+        handoffs=[billing_agent],
+    )
+
+    @triage_agent.tool
+    def valid_handoff() -> Handoff:
+        return Handoff(
+            target_agent_name="Billing",
+            context_updates={"routed_to": "Billing"},
+        )
+
+    @triage_agent.tool
+    def invalid_handoff() -> Handoff:
+        return Handoff(
+            target_agent_name="NonExistentAgent",
+            context_updates={"routed_to": "Ghost"},
+        )
+
+    class DualHandoffEngine(GeminiEngine):
+        async def generate_turn_async(self, agent, history):
+            return EngineTurnResult(
+                text="",
+                tool_calls=[
+                    ToolCall(id="h1", name="valid_handoff", args={}),
+                    ToolCall(id="h2", name="invalid_handoff", args={}),
+                ],
+            )
+
+    store = SessionStore()
+    session = store.get_or_create(
+        "user_dual_handoff_rb",
+        default_agent=triage_agent,
+        metadata={"routed_to": "Triage"},
+    )
+    runner = Runner(
+        starting_agent=triage_agent,
+        session_store=store,
+        engine=DualHandoffEngine(),
+    )
+
+    with pytest.raises(AgentHandoffError):
+        await runner.run_async(
+            session_id="user_dual_handoff_rb",
+            user_message="Route me",
+        )
+
+    assert session.active_agent is triage_agent
+    assert session.metadata == {"routed_to": "Triage"}
+    assert session.history == []
+
+
+@pytest.mark.asyncio
+async def test_runner_rolls_back_sqlite_active_agent_and_metadata_on_failure(
+    tmp_path: Path,
+) -> None:
+    """SQLiteSessionStore must restore both active_agent_name and metadata_json on turn rollback."""
+    db_file = tmp_path / "rollback_agent_meta.db"
+    billing_agent = Agent(name="Billing", instructions="Handle billing.")
+    triage_agent = Agent(
+        name="Triage",
+        instructions="Route users.",
+        handoffs=[billing_agent],
+    )
+
+    @triage_agent.tool
+    def escalate_to_billing() -> Handoff:
+        return Handoff(
+            target_agent_name="Billing",
+            context_updates={"tier": "vip", "escalated": True},
+        )
+
+    class SucceedThenHandoffFailEngine(GeminiEngine):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
+        async def generate_turn_async(self, agent, history):
+            self.calls += 1
+            if self.calls == 1:
+                return EngineTurnResult(text="Welcome to Triage.")
+            if self.calls == 2:
+                return EngineTurnResult(
+                    text="",
+                    tool_calls=[ToolCall(id="h1", name="escalate_to_billing", args={})],
+                )
+            raise ProviderError("Billing LLM call failed")
+
+    store = SQLiteSessionStore(db_path=db_file)
+    runner = Runner(
+        starting_agent=triage_agent,
+        session_store=store,
+        engine=SucceedThenHandoffFailEngine(),
+    )
+
+    # Turn 1: succeeds on Triage with initial metadata
+    await runner.run_async(
+        session_id="sql_agent_meta_rb",
+        user_message="Hello",
+        metadata={"tier": "standard"},
+    )
+
+    # Turn 2: hands off to Billing (persisting Billing + vip metadata), then fails
+    with pytest.raises(ProviderError):
+        await runner.run_async(
+            session_id="sql_agent_meta_rb",
+            user_message="Need billing help",
+        )
+
+    in_mem = runner.get_session("sql_agent_meta_rb")
+    assert in_mem is not None
+    assert in_mem.active_agent.name == "Triage"
+    assert in_mem.metadata == {"tier": "standard"}
+    assert [m.content for m in in_mem.history] == ["Hello", "Welcome to Triage."]
+
+    # Reload from a fresh SQLiteSessionStore to verify disk state was restored
+    store2 = SQLiteSessionStore(db_path=db_file)
+    store2.set_agent_resolver(
+        lambda name: {"Triage": triage_agent, "Billing": billing_agent}.get(name)
+    )
+    reloaded = store2.get_or_create("sql_agent_meta_rb", default_agent=triage_agent)
+    assert reloaded.active_agent is triage_agent
+    assert reloaded.active_agent.name == "Triage"
+    assert reloaded.metadata == {"tier": "standard"}
+    assert [m.content for m in reloaded.history] == ["Hello", "Welcome to Triage."]
+

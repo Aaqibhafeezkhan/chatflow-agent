@@ -1,6 +1,7 @@
 """Session memory management and context tracking for multi-agent conversations."""
 
 import asyncio
+import copy
 import json
 import sqlite3
 from abc import ABC, abstractmethod
@@ -68,9 +69,18 @@ class SessionContext:
         """
         self.history = self.history[:checkpoint_len]
 
-    def restore_history(self, history: list[Message]) -> None:
+    def restore_history(
+        self,
+        history: list[Message],
+        active_agent: Agent | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
         """Restore a complete history snapshot, including entries pruned after it was taken."""
         self.history = list(history)
+        if active_agent is not None:
+            self.active_agent = active_agent
+        if metadata is not None:
+            self.metadata = copy.deepcopy(metadata)
 
     def _prune_history(self) -> None:
         """Keep dialogue history within max_turns by complete turns.
@@ -355,8 +365,18 @@ class SQLiteSessionContext(SessionContext):
                 )
         super().rollback_to(checkpoint_len)
 
-    def restore_history(self, history: list[Message]) -> None:
+    def restore_history(
+        self,
+        history: list[Message],
+        active_agent: Agent | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
         """Restore a history snapshot in memory and persist it to SQLite."""
+        restored_agent = active_agent if active_agent is not None else self.active_agent
+        restored_metadata = (
+            copy.deepcopy(metadata) if metadata is not None else dict(self.metadata)
+        )
+        metadata_json = json.dumps(restored_metadata)
         with _get_sqlite_connection(self.db_path) as conn:
             conn.execute(
                 "DELETE FROM chatflow_messages WHERE session_id = ?",
@@ -380,12 +400,12 @@ class SQLiteSessionContext(SessionContext):
             conn.execute(
                 """
                 UPDATE chatflow_sessions
-                SET active_agent_name = ?, updated_at = CURRENT_TIMESTAMP
+                SET active_agent_name = ?, metadata_json = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE session_id = ?
                 """,
-                (self.active_agent.name, self.session_id),
+                (restored_agent.name, metadata_json, self.session_id),
             )
-        super().restore_history(history)
+        super().restore_history(history, active_agent=active_agent, metadata=metadata)
 
     def set_active_agent(
         self,

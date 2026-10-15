@@ -1,6 +1,7 @@
 """Multi-agent Swarm-style execution Runner for chatflow-agent."""
 
 import asyncio
+import copy
 import logging
 import uuid
 from typing import Any
@@ -79,6 +80,8 @@ class Runner:
 
         async with session.lock:
             checkpoint_history = list(session.history)
+            checkpoint_agent = session.active_agent
+            checkpoint_metadata = copy.deepcopy(session.metadata)
             try:
                 # 1. Append inbound user message to history
                 session.add_message(Message(role=Role.USER, content=user_message))
@@ -232,6 +235,8 @@ class Runner:
                 )
 
             except Exception:
+                session.active_agent = checkpoint_agent
+                session.metadata = checkpoint_metadata
                 session.restore_history(checkpoint_history)
                 raise
 

@@ -62,19 +62,24 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
 }
 
 
+
 def _lowercase_schema_types(schema: Any) -> Any:
-    """Recursively convert uppercase schema types (e.g. 'STRING' -> 'string')."""
+    """Normalize schema type names while preserving user-provided defaults."""
     if isinstance(schema, dict):
         new_dict: dict[str, Any] = {}
         for k, v in schema.items():
             if k == "type" and isinstance(v, str):
                 new_dict[k] = v.lower()
+            elif k == "default":
+                # Default values are user data, not schema metadata.
+                new_dict[k] = v
             else:
                 new_dict[k] = _lowercase_schema_types(v)
         return new_dict
     elif isinstance(schema, list):
         return [_lowercase_schema_types(item) for item in schema]
     return schema
+
 
 
 class OpenAIEngine(BaseEngine):

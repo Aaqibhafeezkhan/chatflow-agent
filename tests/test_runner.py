@@ -329,3 +329,28 @@ def test_runner_sync_wrapper() -> None:
 
     assert response.content == "Echo reply."
     assert response.active_agent_name == "Echo"
+
+
+def test_runner_run_raises_inside_running_loop() -> None:
+    """Runner.run() must not be called from a running event loop."""
+    import asyncio
+    import warnings
+
+    agent = Agent(name="Echo", instructions="Echo input.")
+    mock_engine = MockEngine([EngineTurnResult(text="should not reach")])
+    runner = Runner(starting_agent=agent, engine=mock_engine)
+
+    async def call_sync_from_async() -> None:
+        with pytest.raises(RuntimeError, match="cannot be called from a running event loop"):
+            runner.run(session_id="user_async", user_message="hi")
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        asyncio.run(call_sync_from_async())
+        unawaited = [
+            w
+            for w in caught
+            if issubclass(w.category, RuntimeWarning)
+            and "never awaited" in str(w.message)
+        ]
+        assert unawaited == [], f"Unexpected unawaited coroutine warnings: {unawaited}"

@@ -246,14 +246,21 @@ class Runner:
         user_message: str,
         metadata: dict[str, Any] | None = None,
     ) -> AgentResponse:
-        """Synchronous convenience wrapper for run_async."""
+        """Synchronous convenience wrapper for run_async.
+
+        Raises RuntimeError if called from a running event loop; use
+        ``await runner.run_async(...)`` instead in that case.
+        """
         try:
-            loop = asyncio.get_running_loop()
-            return loop.run_until_complete(
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(
                 self.run_async(session_id, user_message, metadata=metadata)
             )
-        except RuntimeError:
-            return asyncio.run(self.run_async(session_id, user_message, metadata=metadata))
+        raise RuntimeError(
+            "Runner.run() cannot be called from a running event loop. "
+            "Use `await runner.run_async(...)` instead."
+        )
 
     def __repr__(self) -> str:
         return (

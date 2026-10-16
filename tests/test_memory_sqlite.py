@@ -366,3 +366,17 @@ def test_sqlite_concurrency_writes_no_lock_error(tmp_path: Path, test_agents: tu
         futures = [executor.submit(worker, wid) for wid in range(15)]
         for f in concurrent.futures.as_completed(futures):
             f.result()  # Should not raise sqlite3.OperationalError: database is locked
+
+@pytest.mark.parametrize("limit", [0, -1, -10])
+def test_sqlite_store_rejects_invalid_default_max_turns(tmp_path: Path, limit: int) -> None:
+    db = tmp_path / "invalid.db"
+    with pytest.raises(ValueError, match="default_max_turns"):
+        SQLiteSessionStore(db, default_max_turns=limit)
+    assert not db.exists()  # no database created
+
+
+@pytest.mark.parametrize("limit", [0, -1, -10])
+def test_sqlite_context_rejects_invalid_max_turns(tmp_path: Path, limit: int) -> None:
+    agent = Agent(name="A", instructions="test")
+    with pytest.raises(ValueError, match="max_turns"):
+        SQLiteSessionContext("s", agent, db_path=str(tmp_path / "x.db"), max_turns=limit)

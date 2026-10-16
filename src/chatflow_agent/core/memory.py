@@ -191,6 +191,10 @@ class SessionStore(BaseSessionStore):
         dedup_ttl_hours: float = DEFAULT_DEDUP_TTL_HOURS,
     ) -> None:
         import time as _time
+        if default_max_turns <= 0:
+            raise ValueError(
+        f"default_max_turns must be a positive integer, got {default_max_turns}"
+    )
         self._sessions: dict[str, SessionContext] = {}
         self.default_max_turns = default_max_turns
         self.dedup_ttl_hours = dedup_ttl_hours
@@ -298,6 +302,8 @@ class SQLiteSessionContext(SessionContext):
         metadata: dict[str, Any] | None = None,
         preloaded_history: list[Message] | None = None,
     ) -> None:
+        if max_turns <= 0:
+            raise ValueError(f"max_turns must be a positive integer, got {max_turns}")
         super().__init__(
             session_id=session_id,
             initial_agent=initial_agent,
@@ -466,6 +472,9 @@ class SQLiteSessionStore(BaseSessionStore):
         default_max_turns: int = 40,
         dedup_ttl_hours: float = DEFAULT_DEDUP_TTL_HOURS,
     ) -> None:
+        if default_max_turns <= 0:
+            raise ValueError(
+        f"default_max_turns must be a positive integer, got {default_max_turns}")
         self.db_path = str(db_path)
         self.default_max_turns = default_max_turns
         self.dedup_ttl_hours = dedup_ttl_hours

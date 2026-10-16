@@ -92,3 +92,10 @@ def test_session_store_lifecycle(test_agents: tuple[Agent, Agent]) -> None:
     assert store.delete("user_alpha") is True
     assert store.get("user_alpha") is None
     assert "user_alpha" not in store.list_sessions()
+
+@pytest.mark.parametrize("limit", [0, -1, -10])
+def test_invalid_max_turns(limit):
+    agent = Agent(name="A", instructions="test")
+
+    with pytest.raises(ValueError, match="max_turns"):
+        SessionContext("s1", agent, max_turns=limit)

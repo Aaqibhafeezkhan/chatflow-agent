@@ -6,6 +6,7 @@ import inspect
 import types
 from collections.abc import Callable, Mapping, Sequence
 from typing import (
+    Annotated,
     Any,
     Union,
     get_args,
@@ -36,6 +37,10 @@ def _python_type_to_gemini_type(py_type: Any) -> str:
         return "STRING"
 
     origin = get_origin(py_type)
+    if origin is Annotated:
+        # Annotated[T, ...] maps the same as its underlying type T
+        return _python_type_to_gemini_type(get_args(py_type)[0])
+
     if origin in (Union, types.UnionType):
         # Handle Optional[T] which is Union[T, NoneType]
         args = [arg for arg in get_args(py_type) if arg is not type(None)]

@@ -2,7 +2,7 @@
 
 import typing
 from collections.abc import Mapping, Sequence
-from typing import Optional
+from typing import Annotated, Optional
 
 import pytest
 
@@ -129,6 +129,46 @@ def test_tool_container_parameters_schema() -> None:
         "filters": {"type": "OBJECT", "default": None},
     }
     assert schema["required"] == ["coordinates", "tags", "excluded_tags", "queries"]
+
+
+@pytest.mark.parametrize(
+    ("annotation", "expected"),
+    [
+        (Annotated[int, "positive"], "INTEGER"),
+        (Annotated[bool, "flag"], "BOOLEAN"),
+        (Annotated[str, "name"], "STRING"),
+        (Annotated[float, "ratio"], "NUMBER"),
+        (Annotated[list[str], "tags"], "ARRAY"),
+        (Annotated[dict[str, int], "mapping"], "OBJECT"),
+        (Optional[Annotated[int, "positive"]], "INTEGER"),  # noqa: UP045 - preserve legacy Optional coverage
+        (Annotated[int, "positive"] | None, "INTEGER"),
+        (Annotated[int | None, "positive"], "INTEGER"),
+        (Annotated[Annotated[int, "inner"], "outer"], "INTEGER"),
+    ],
+)
+def test_annotated_type_introspection(annotation: object, expected: str) -> None:
+    assert _python_type_to_gemini_type(annotation) == expected
+
+
+def test_tool_annotated_parameters_schema() -> None:
+    def annotated(
+        count: Annotated[int, "positive"],
+        enabled: Annotated[bool, "flag"],
+        tags: Annotated[list[str], "tags"],
+        limit: Annotated[int, "limit"] | None = None,
+        verbose: Annotated[bool, "flag"] = False,
+    ) -> None:
+        pass
+
+    schema = Tool(annotated).parameters_schema
+    assert schema["properties"] == {
+        "count": {"type": "INTEGER"},
+        "enabled": {"type": "BOOLEAN"},
+        "tags": {"type": "ARRAY"},
+        "limit": {"type": "INTEGER", "default": None},
+        "verbose": {"type": "BOOLEAN", "default": False},
+    }
+    assert schema["required"] == ["count", "enabled", "tags"]
 
 
 def test_tool_async_introspection() -> None:

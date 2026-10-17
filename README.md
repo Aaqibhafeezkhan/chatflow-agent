@@ -666,6 +666,8 @@ Use it to build an idempotency key (a business operation ID) that stays the same
 operation_id = f"refund:{order_id}"
 ```
 
+An idempotency key identifies one business operation. Reuse it for retries of that same operation, with the same semantic parameters (for example, the same order and amount); a different operation needs a different key.
+
 > A tool only receives the arguments the model supplies, so do not let the model generate the key. Use an identifier that already exists in your system.
 
 #### Retry-Safe Tool Design
@@ -728,7 +730,7 @@ def create_refund(order_id: str, amount: float) -> dict:
 
 * Return the stored result when the operation already ran, so the model can answer consistently instead of repeating the action.
 * Forward the key to the external system when it supports one.
-* A `pending` row means the process stopped mid-operation. Decide per tool whether to retry with the same key or to check the external system first.
+* **This example does not recover pending operations.** A `pending` row means either that the operation is still running or that execution was interrupted before it completed, and the example cannot tell which. Calling the tool again does not retry a pending operation; it only returns `in_progress`. Your application should reconcile or retry pending operations deliberately, using the same idempotency key.
 
 #### Replay Protection
 
@@ -744,10 +746,12 @@ Record what each tool did outside the conversation history (the `operations` tab
 | --- | --- |
 | **Payments** | Key on `payment_id` or `order_id` plus the operation; forward the key to the payment provider. |
 | **Database records** | Use `UNIQUE` constraints or upserts (`INSERT ... ON CONFLICT`) on a business key. |
-| **Emails / messages** | Record a "sent" marker per `(recipient, message_kind, business_id)` before sending. |
+| **Emails / messages** | Reserve a pending delivery per `(recipient, message_kind, business_id)`, send it, then confirm the result (see the note below). |
 | **External API calls** | Send the provider's idempotency key when available; otherwise look up existing state first. |
 | **Remote resources** | Use deterministic names or tags derived from a business ID, and look them up before creating. |
 | **Persistent business operations** | Assign an `operation_id` per business action and record it before executing. |
+
+**Emails and messages.** Treat delivery as three separate steps: reserve a pending delivery, send the message, then confirm the result. Recording a "sent" marker *before* sending can lose a message if the process stops before delivery. If delivery succeeds but recording the result fails, a local marker alone cannot guarantee both no duplicates and guaranteed delivery; that requires an external provider that supports idempotency or reconciliation.
 
 ---
 
@@ -1445,6 +1449,8 @@ Usalo para construir una clave de idempotencia (un ID de operacion de negocio) q
 operation_id = f"refund:{order_id}"
 ```
 
+Una clave de idempotencia identifica una operacion de negocio. Reutilizala para los reintentos de esa misma operacion, con los mismos parametros semanticos (por ejemplo, el mismo pedido y el mismo monto); una operacion distinta necesita una clave distinta.
+
 > Una tool solo recibe los argumentos que entrega el modelo, por lo que no dejes que el modelo genere la clave. Usa un identificador que ya exista en tu sistema.
 
 #### Diseno de Tools Seguras ante Reintentos
@@ -1507,7 +1513,7 @@ def create_refund(order_id: str, amount: float) -> dict:
 
 * Devuelve el resultado guardado cuando la operacion ya se ejecuto, para que el modelo responda de forma consistente en lugar de repetir la accion.
 * Envia la clave al sistema externo cuando lo soporte.
-* Una fila en `pending` significa que el proceso se detuvo a mitad de la operacion. Decide por tool si reintentar con la misma clave o consultar primero el sistema externo.
+* **Este ejemplo no recupera operaciones pendientes.** Una fila `pending` significa que la operacion sigue en ejecucion o que la ejecucion se interrumpio antes de completarse, y el ejemplo no puede distinguir entre ambos casos. Llamar de nuevo a la tool no reintenta una operacion pendiente; solo devuelve `in_progress`. Tu aplicacion debe reconciliar o reintentar las operaciones pendientes de forma deliberada, usando la misma clave de idempotencia.
 
 #### Proteccion contra Repeticiones (Replay)
 
@@ -1523,10 +1529,12 @@ Registra lo que hizo cada tool fuera del historial de la conversacion (la tabla 
 | --- | --- |
 | **Pagos** | Clave basada en `payment_id` u `order_id` mas la operacion; enviar la clave al proveedor de pagos. |
 | **Registros en base de datos** | Restricciones `UNIQUE` o upserts (`INSERT ... ON CONFLICT`) sobre una clave de negocio. |
-| **Emails / mensajes** | Registrar una marca de "enviado" por `(destinatario, tipo_de_mensaje, id_de_negocio)` antes de enviar. |
+| **Emails / mensajes** | Reservar una entrega pendiente por `(destinatario, tipo_de_mensaje, id_de_negocio)`, enviarla y luego confirmar el resultado (ver la nota siguiente). |
 | **Llamadas a APIs externas** | Enviar la clave de idempotencia del proveedor si existe; si no, consultar el estado previo primero. |
 | **Recursos remotos** | Usar nombres o etiquetas deterministas derivados de un ID de negocio y buscarlos antes de crear. |
 | **Operaciones de negocio persistentes** | Asignar un `operation_id` por accion de negocio y registrarlo antes de ejecutar. |
+
+**Emails y mensajes.** Trata la entrega como tres pasos separados: reservar una entrega pendiente, enviar el mensaje y luego confirmar el resultado. Registrar una marca de "enviado" *antes* de enviar puede hacer que se pierda un mensaje si el proceso se detiene antes de la entrega. Si la entrega tiene exito pero falla el registro del resultado, una marca local por si sola no puede garantizar a la vez que no haya duplicados y que la entrega ocurra; eso requiere un proveedor externo que soporte idempotencia o reconciliacion.
 
 ---
 

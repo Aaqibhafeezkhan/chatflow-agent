@@ -1,5 +1,6 @@
 """Tests for chatflow-agent tool introspection and execution engine."""
 
+import functools
 import typing
 from collections.abc import Mapping, Sequence
 from typing import Annotated, Optional
@@ -324,3 +325,67 @@ async def test_async_callable_instance_tool() -> None:
     res = await t.execute_async(x=5)
     assert res == 15
 
+
+
+def test_postponed_annotations_resolve_to_schema_types() -> None:
+    def calculate(count: "int", enabled: "bool" = False, ratio: "float" = 1.5) -> "int":
+        return count
+
+    schema = Tool(calculate).parameters_schema
+    assert schema["properties"] == {
+        "count": {"type": "INTEGER"},
+        "enabled": {"type": "BOOLEAN", "default": False},
+        "ratio": {"type": "NUMBER", "default": 1.5},
+    }
+    assert schema["required"] == ["count"]
+
+
+def test_postponed_optional_container_and_annotated_types_resolve() -> None:
+    def inspect_values(
+        count: "int | None",
+        tags: "list[str]",
+        label: "Annotated[str, 'metadata']",
+    ) -> None:
+        pass
+
+    schema = Tool(inspect_values).parameters_schema
+    assert schema["properties"] == {
+        "count": {"type": "INTEGER"},
+        "tags": {"type": "ARRAY"},
+        "label": {"type": "STRING"},
+    }
+
+
+def test_postponed_annotations_support_methods_and_callable_instances() -> None:
+    class Calculator:
+        def calculate(self, count: "int", enabled: "bool" = False) -> "int":
+            return count
+
+    class CallableCalculator:
+        def __call__(self, count: "int", tags: "list[str]") -> int:
+            return count
+
+    method_schema = Tool(Calculator().calculate).parameters_schema
+    callable_schema = Tool(CallableCalculator()).parameters_schema
+    assert method_schema["properties"]["count"]["type"] == "INTEGER"
+    assert method_schema["properties"]["enabled"]["type"] == "BOOLEAN"
+    assert callable_schema["properties"]["count"]["type"] == "INTEGER"
+    assert callable_schema["properties"]["tags"]["type"] == "ARRAY"
+
+
+def test_postponed_annotations_support_partial_functions() -> None:
+    def calculate(offset: "int", count: "int") -> "int":
+        return offset + count
+
+    schema = Tool(functools.partial(calculate, 2)).parameters_schema
+    assert schema["properties"] == {"count": {"type": "INTEGER"}}
+    assert schema["required"] == ["count"]
+
+
+def test_unresolvable_annotation_preserves_fallback_behavior() -> None:
+    def calculate(value: "MissingRuntimeType") -> str:
+        return str(value)
+
+    schema = Tool(calculate).parameters_schema
+    assert schema["properties"]["value"]["type"] == "STRING"
+    assert schema["required"] == ["value"]

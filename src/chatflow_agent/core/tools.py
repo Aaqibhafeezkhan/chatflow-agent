@@ -11,6 +11,7 @@ from typing import (
     Union,
     get_args,
     get_origin,
+    get_type_hints,
 )
 
 from chatflow_agent.exceptions import ToolExecutionError
@@ -66,6 +67,7 @@ class Tool:
             description or self._extract_description(func) or f"Execute {self.name}"
         )
         self.signature = inspect.signature(func)
+        self._resolved_annotations = self._resolve_annotations(func)
         self.is_async = inspect.iscoroutinefunction(func) or (
             callable(func) and inspect.iscoroutinefunction(getattr(func, "__call__", None))  # noqa: B004
         )
@@ -93,6 +95,25 @@ class Tool:
                 return underlying_doc.strip()
         return (doc or "").strip()
 
+    @staticmethod
+    def _resolve_annotations(func: Callable[..., Any]) -> dict[str, Any]:
+        """Resolve postponed annotations while preserving Annotated metadata.
+
+        If any forward reference cannot be resolved, keep the callable's raw
+        annotations. This preserves the existing fallback behavior for tools
+        whose annotations depend on unavailable runtime names.
+        """
+        target: Any = func
+        if isinstance(target, functools.partial):
+            target = target.func
+        elif not inspect.isfunction(target) and not inspect.ismethod(target):
+            target = getattr(target, "__call__", target)
+
+        try:
+            return get_type_hints(target, include_extras=True)
+        except (NameError, TypeError):
+            return {}
+
     def _build_parameters_schema(self) -> dict[str, Any]:
         """Introspect function signature and generate schema for parameters."""
         properties: dict[str, Any] = {}
@@ -105,7 +126,8 @@ class Tool:
             ):
                 continue
 
-            gemini_type = _python_type_to_gemini_type(param.annotation)
+            annotation = self._resolved_annotations.get(param_name, param.annotation)
+            gemini_type = _python_type_to_gemini_type(annotation)
             param_def: dict[str, Any] = {
                 "type": gemini_type,
             }

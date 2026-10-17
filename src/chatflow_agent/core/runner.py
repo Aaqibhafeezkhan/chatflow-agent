@@ -234,10 +234,19 @@ class Runner:
                     handoff=last_handoff,
                 )
 
+            except asyncio.CancelledError:
+                session.restore_history(
+                    checkpoint_history,
+                    active_agent=checkpoint_agent,
+                    metadata=checkpoint_metadata,
+                )
+                raise
             except Exception:
-                session.active_agent = checkpoint_agent
-                session.metadata = checkpoint_metadata
-                session.restore_history(checkpoint_history)
+                session.restore_history(
+                    checkpoint_history,
+                    active_agent=checkpoint_agent,
+                    metadata=checkpoint_metadata,
+                )
                 raise
 
     def run(

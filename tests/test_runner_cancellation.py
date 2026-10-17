@@ -6,7 +6,7 @@ import pytest
 from chatflow_agent.core.agent import Agent
 from chatflow_agent.core.engines import BaseEngine
 from chatflow_agent.core.engines.base import EngineTurnResult
-from chatflow_agent.core.memory import SQLiteSessionStore, SessionStore
+from chatflow_agent.core.memory import SessionStore, SQLiteSessionStore
 from chatflow_agent.core.runner import Runner
 from chatflow_agent.types import Handoff, Message, Role, ToolCall
 

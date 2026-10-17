@@ -112,13 +112,15 @@ if __name__ == "__main__":
 
 6. [Production Resilience & Concurrency](#production-resilience--concurrency)
 
-7. [Session Memory & Persistence](#session-memory--persistence)
+7. [Tool Idempotency & Side-Effect Handling](#tool-idempotency--side-effect-handling)
 
-8. [Production Starter Templates](#production-starter-templates)
+8. [Session Memory & Persistence](#session-memory--persistence)
 
-9. [Contributing](#contributing)
+9. [Production Starter Templates](#production-starter-templates)
 
-10. [Guía Completa en Español](#guía-completa-en-español)
+10. [Contributing](#contributing)
+
+11. [Guía Completa en Español](#guía-completa-en-español)
 
 ---
 
@@ -627,7 +629,129 @@ ChatFlow includes built-in safeguards engineered specifically for real-world mes
 
 * **Unsupported Media Handling:** Audio voice notes, photos, and PDF files are safely intercepted with `unsupported_media_message` without throwing unhandled exceptions or disrupting ongoing chat sessions.
 
-* **Turn Failure Rollback:** If an LLM request times out, rate limits, or crashes mid-turn, ChatFlow automatically rolls back dialogue history to the last consistent turn in memory and SQLite (note: rollback reverts conversational history; external side effects of already executed tools are not rolled back), ensuring clean context without orphaned partial turns.
+* **Turn Failure Rollback:** If an LLM request times out, rate limits, or crashes mid-turn, ChatFlow automatically rolls back dialogue history to the last consistent turn in memory and SQLite (note: rollback reverts conversational history; external side effects of already executed tools are not rolled back), ensuring clean context without orphaned partial turns. See [Tool Idempotency & Side-Effect Handling](#tool-idempotency--side-effect-handling) for how to design tools that are safe to retry.
+
+---
+
+### Tool Idempotency & Side-Effect Handling
+
+Tools that interact with external systems (process payments, create database records, send emails or messages, call external APIs, create remote resources, or trigger persistent business operations) may be executed again after a failed turn or a user retry. This section explains how to design them so a repeated call does not repeat the real-world effect.
+
+#### Conversational Rollback vs. External Effects
+
+When a turn fails, ChatFlow restores the following to the last consistent turn, in memory and in SQLite:
+
+* session history;
+* the active agent;
+* session metadata.
+
+This does **not** undo operations performed outside `chatflow-agent`. A tool may succeed and produce an external side effect, and the same turn may then fail because of a provider or network error. Since the history is rolled back, the retry no longer contains evidence that the tool already executed, so the same business operation may be requested again.
+
+This is expected behavior in distributed systems. It is handled through idempotent tool design, not through automatic deduplication in the `Runner`.
+
+#### Idempotent Tool Design
+
+Identify each business operation with a stable business identifier, such as:
+
+```text
+order_id
+payment_id
+request_id
+operation_id
+```
+
+Use it to build an idempotency key (a business operation ID) that stays the same across retries:
+
+```python
+operation_id = f"refund:{order_id}"
+```
+
+An idempotency key identifies one business operation. Reuse it for retries of that same operation, with the same semantic parameters (for example, the same order and amount); a different operation needs a different key.
+
+> A tool only receives the arguments the model supplies, so do not let the model generate the key. Use an identifier that already exists in your system.
+
+#### Retry-Safe Tool Design
+
+Claim the key atomically, run the side effect, then record the result. `payment_gateway` is a placeholder for your external system.
+
+```python
+import json
+import sqlite3
+
+DB_PATH = "operations.db"
+
+with sqlite3.connect(DB_PATH) as conn:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS operations (
+            operation_id TEXT PRIMARY KEY,
+            status       TEXT NOT NULL,   -- 'pending' | 'done'
+            result       TEXT
+        )
+        """
+    )
+
+
+@billing_agent.tool
+def create_refund(order_id: str, amount: float) -> dict:
+    """Refund an order. Safe to call more than once for the same order."""
+    operation_id = f"refund:{order_id}"
+
+    with sqlite3.connect(DB_PATH) as conn:
+        try:
+            # 1. Claim the key atomically.
+            conn.execute(
+                "INSERT INTO operations (operation_id, status) VALUES (?, 'pending')",
+                (operation_id,),
+            )
+        except sqlite3.IntegrityError:
+            # Already seen: return the stored outcome instead of repeating the effect.
+            status, result = conn.execute(
+                "SELECT status, result FROM operations WHERE operation_id = ?",
+                (operation_id,),
+            ).fetchone()
+            if status == "done":
+                return {**json.loads(result), "already_processed": True}
+            return {"status": "in_progress", "operation_id": operation_id}
+
+    # 2. Execute the side effect, forwarding the key downstream.
+    result = payment_gateway.refund(
+        order_id=order_id, amount=amount, idempotency_key=operation_id
+    )
+
+    # 3. Record the outcome.
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            "UPDATE operations SET status = 'done', result = ? WHERE operation_id = ?",
+            (json.dumps(result), operation_id),
+        )
+    return result
+```
+
+* Return the stored result when the operation already ran, so the model can answer consistently instead of repeating the action.
+* Forward the key to the external system when it supports one.
+* **This example does not recover pending operations.** A `pending` row means either that the operation is still running or that execution was interrupted before it completed, and the example cannot tell which. Calling the tool again does not retry a pending operation; it only returns `in_progress`. Your application should reconcile or retry pending operations deliberately, using the same idempotency key.
+
+#### Replay Protection
+
+A tool can be called again because a turn is retried after a rollback, the user resends a message, or a channel redelivers a webhook. Idempotent tools make all of these safe: the second call finds the recorded key and returns the stored result.
+
+#### External Transaction Tracking
+
+Record what each tool did outside the conversation history (the `operations` table above is a minimal example): the idempotency key, the external system's ID (payment ID, message ID, remote resource ID), the status, and the result returned to the model. A history rollback does not affect this record.
+
+#### Recommended Patterns
+
+| Tool type | Recommended approach |
+| --- | --- |
+| **Payments** | Key on `payment_id` or `order_id` plus the operation; forward the key to the payment provider. |
+| **Database records** | Use `UNIQUE` constraints or upserts (`INSERT ... ON CONFLICT`) on a business key. |
+| **Emails / messages** | Reserve a pending delivery per `(recipient, message_kind, business_id)`, send it, then confirm the result (see the note below). |
+| **External API calls** | Send the provider's idempotency key when available; otherwise look up existing state first. |
+| **Remote resources** | Use deterministic names or tags derived from a business ID, and look them up before creating. |
+| **Persistent business operations** | Assign an `operation_id` per business action and record it before executing. |
+
+**Emails and messages.** Treat delivery as three separate steps: reserve a pending delivery, send the message, then confirm the result. Recording a "sent" marker *before* sending can lose a message if the process stops before delivery. If delivery succeeds but recording the result fails, a local marker alone cannot guarantee both no duplicates and guaranteed delivery; that requires an external provider that supports idempotency or reconciliation.
 
 ---
 
@@ -783,13 +907,15 @@ if __name__ == "__main__":
 
 6. [Resiliencia y Concurrencia en Produccion](#resiliencia-y-concurrencia-en-produccion-1)
 
-7. [Memoria de Sesiones y Persistencia en SQLite](#memoria-de-sesiones-y-persistencia-en-sqlite-1)
+7. [Idempotencia de Tools y Efectos Secundarios](#idempotencia-de-tools-y-efectos-secundarios)
 
-8. [Plantillas de Produccion Listas para Usar](#plantillas-de-produccion-listas-para-usar-1)
+8. [Memoria de Sesiones y Persistencia en SQLite](#memoria-de-sesiones-y-persistencia-en-sqlite-1)
 
-9. [Contribuciones](#contribuciones)
+9. [Plantillas de Produccion Listas para Usar](#plantillas-de-produccion-listas-para-usar-1)
 
-10. [Documentación en Inglés](#english-documentation)
+10. [Contribuciones](#contribuciones)
+
+11. [Documentación en Inglés](#english-documentation)
 
 ---
 
@@ -1286,7 +1412,129 @@ canal_cli.run()
 
 * **Manejo Seguro de Archivos Multimedia:** Audios, fotos y documentos son interceptados con un aviso claro (`unsupported_media_message`) sin generar excepciones no controladas ni interrumpir la sesion en curso.
 
-* **Rollback ante Fallas en el Turno:** Si una solicitud al LLM excede el tiempo de espera o falla a mitad de turno, ChatFlow revierte automaticamente el historial de conversacion al ultimo turno consistente en memoria y SQLite (nota: revierte el historial conversacional; no deshace efectos secundarios externos de tools ya ejecutadas), garantizando un contexto limpio sin turnos huerfanos.
+* **Rollback ante Fallas en el Turno:** Si una solicitud al LLM excede el tiempo de espera o falla a mitad de turno, ChatFlow revierte automaticamente el historial de conversacion al ultimo turno consistente en memoria y SQLite (nota: revierte el historial conversacional; no deshace efectos secundarios externos de tools ya ejecutadas), garantizando un contexto limpio sin turnos huerfanos. Consulta [Idempotencia de Tools y Efectos Secundarios](#idempotencia-de-tools-y-efectos-secundarios) para disenar tools seguras ante reintentos.
+
+---
+
+### Idempotencia de Tools y Efectos Secundarios
+
+Las tools que interactuan con sistemas externos (procesan pagos, crean registros en base de datos, envian emails o mensajes, llaman a APIs externas, crean recursos remotos o disparan operaciones de negocio persistentes) pueden ejecutarse nuevamente despues de un turno fallido o de un reintento del usuario. Esta seccion explica como disenarlas para que una llamada repetida no repita el efecto real.
+
+#### Rollback Conversacional vs. Efectos Externos
+
+Cuando un turno falla, ChatFlow restaura lo siguiente al ultimo turno consistente, en memoria y en SQLite:
+
+* el historial de la sesion;
+* el agente activo;
+* los metadatos de la sesion.
+
+Esto **no** deshace operaciones realizadas fuera de `chatflow-agent`. Una tool puede ejecutarse con exito y producir un efecto secundario externo, y el mismo turno puede fallar despues por un error del proveedor o de red. Como el historial se revierte, el reintento ya no contiene evidencia de que la tool se ejecuto, por lo que la misma operacion de negocio puede solicitarse otra vez.
+
+Este es un comportamiento esperado en sistemas distribuidos. Se resuelve con un diseno idempotente de las tools, no con deduplicacion automatica en el `Runner`.
+
+#### Diseno de Tools Idempotentes
+
+Identifica cada operacion de negocio con un identificador de negocio estable, como:
+
+```text
+order_id
+payment_id
+request_id
+operation_id
+```
+
+Usalo para construir una clave de idempotencia (un ID de operacion de negocio) que se mantenga igual entre reintentos:
+
+```python
+operation_id = f"refund:{order_id}"
+```
+
+Una clave de idempotencia identifica una operacion de negocio. Reutilizala para los reintentos de esa misma operacion, con los mismos parametros semanticos (por ejemplo, el mismo pedido y el mismo monto); una operacion distinta necesita una clave distinta.
+
+> Una tool solo recibe los argumentos que entrega el modelo, por lo que no dejes que el modelo genere la clave. Usa un identificador que ya exista en tu sistema.
+
+#### Diseno de Tools Seguras ante Reintentos
+
+Reserva la clave de forma atomica, ejecuta el efecto secundario y luego registra el resultado. `payment_gateway` es un marcador de posicion para tu sistema externo.
+
+```python
+import json
+import sqlite3
+
+DB_PATH = "operations.db"
+
+with sqlite3.connect(DB_PATH) as conn:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS operations (
+            operation_id TEXT PRIMARY KEY,
+            status       TEXT NOT NULL,   -- 'pending' | 'done'
+            result       TEXT
+        )
+        """
+    )
+
+
+@agente_facturacion.tool
+def create_refund(order_id: str, amount: float) -> dict:
+    """Reembolsa un pedido. Es seguro llamarla mas de una vez para el mismo pedido."""
+    operation_id = f"refund:{order_id}"
+
+    with sqlite3.connect(DB_PATH) as conn:
+        try:
+            # 1. Reservar la clave de forma atomica.
+            conn.execute(
+                "INSERT INTO operations (operation_id, status) VALUES (?, 'pending')",
+                (operation_id,),
+            )
+        except sqlite3.IntegrityError:
+            # Ya existe: devolver el resultado guardado en vez de repetir el efecto.
+            status, result = conn.execute(
+                "SELECT status, result FROM operations WHERE operation_id = ?",
+                (operation_id,),
+            ).fetchone()
+            if status == "done":
+                return {**json.loads(result), "already_processed": True}
+            return {"status": "in_progress", "operation_id": operation_id}
+
+    # 2. Ejecutar el efecto secundario, enviando la clave al sistema externo.
+    result = payment_gateway.refund(
+        order_id=order_id, amount=amount, idempotency_key=operation_id
+    )
+
+    # 3. Registrar el resultado.
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            "UPDATE operations SET status = 'done', result = ? WHERE operation_id = ?",
+            (json.dumps(result), operation_id),
+        )
+    return result
+```
+
+* Devuelve el resultado guardado cuando la operacion ya se ejecuto, para que el modelo responda de forma consistente en lugar de repetir la accion.
+* Envia la clave al sistema externo cuando lo soporte.
+* **Este ejemplo no recupera operaciones pendientes.** Una fila `pending` significa que la operacion sigue en ejecucion o que la ejecucion se interrumpio antes de completarse, y el ejemplo no puede distinguir entre ambos casos. Llamar de nuevo a la tool no reintenta una operacion pendiente; solo devuelve `in_progress`. Tu aplicacion debe reconciliar o reintentar las operaciones pendientes de forma deliberada, usando la misma clave de idempotencia.
+
+#### Proteccion contra Repeticiones (Replay)
+
+Una tool puede llamarse otra vez porque un turno se reintenta despues de un rollback, el usuario reenvia un mensaje o un canal entrega nuevamente un webhook. Las tools idempotentes hacen seguros todos estos casos: la segunda llamada encuentra la clave registrada y devuelve el resultado guardado.
+
+#### Seguimiento de Transacciones Externas
+
+Registra lo que hizo cada tool fuera del historial de la conversacion (la tabla `operations` de arriba es un ejemplo minimo): la clave de idempotencia, el ID del sistema externo (ID de pago, de mensaje o del recurso remoto), el estado y el resultado devuelto al modelo. Un rollback del historial no afecta este registro.
+
+#### Patrones Recomendados
+
+| Tipo de tool | Enfoque recomendado |
+| --- | --- |
+| **Pagos** | Clave basada en `payment_id` u `order_id` mas la operacion; enviar la clave al proveedor de pagos. |
+| **Registros en base de datos** | Restricciones `UNIQUE` o upserts (`INSERT ... ON CONFLICT`) sobre una clave de negocio. |
+| **Emails / mensajes** | Reservar una entrega pendiente por `(destinatario, tipo_de_mensaje, id_de_negocio)`, enviarla y luego confirmar el resultado (ver la nota siguiente). |
+| **Llamadas a APIs externas** | Enviar la clave de idempotencia del proveedor si existe; si no, consultar el estado previo primero. |
+| **Recursos remotos** | Usar nombres o etiquetas deterministas derivados de un ID de negocio y buscarlos antes de crear. |
+| **Operaciones de negocio persistentes** | Asignar un `operation_id` por accion de negocio y registrarlo antes de ejecutar. |
+
+**Emails y mensajes.** Trata la entrega como tres pasos separados: reservar una entrega pendiente, enviar el mensaje y luego confirmar el resultado. Registrar una marca de "enviado" *antes* de enviar puede hacer que se pierda un mensaje si el proceso se detiene antes de la entrega. Si la entrega tiene exito pero falla el registro del resultado, una marca local por si sola no puede garantizar a la vez que no haya duplicados y que la entrega ocurra; eso requiere un proveedor externo que soporte idempotencia o reconciliacion.
 
 ---
 

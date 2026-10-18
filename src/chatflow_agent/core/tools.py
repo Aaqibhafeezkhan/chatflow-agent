@@ -3,6 +3,7 @@
 import asyncio
 import functools
 import inspect
+import logging
 import types
 from collections.abc import Callable, Mapping, Sequence
 from typing import (
@@ -14,6 +15,8 @@ from typing import (
 )
 
 from chatflow_agent.exceptions import ToolExecutionError
+
+logger = logging.getLogger("chatflow_agent.tools")
 
 # Mapping Python types to Gemini / JSON Schema types
 TYPE_MAP = {
@@ -51,6 +54,31 @@ def _python_type_to_gemini_type(py_type: Any) -> str:
     return TYPE_MAP.get(origin or py_type, "STRING")
 
 
+def _resolve_signature(func: Callable[..., Any], tool_name: str) -> inspect.Signature:
+    """Return the signature of ``func`` with postponed (string) annotations resolved.
+
+    Modules using ``from __future__ import annotations`` (or explicit string annotations)
+    store annotations as strings. ``eval_str=True`` evaluates them against the namespace of
+    the underlying callable, which covers functions, bound methods, callable instances and
+    ``functools.partial`` objects, while leaving ``Annotated`` metadata intact.
+
+    If an annotation cannot be resolved (for example a name imported only under
+    ``TYPE_CHECKING``), the unresolved signature is used instead and a warning is logged.
+    Parameters then fall back to the default ``STRING`` schema type.
+    """
+    try:
+        return inspect.signature(func, eval_str=True)
+    except (NameError, AttributeError, SyntaxError, TypeError) as err:
+        logger.warning(
+            "Could not resolve type annotations for tool '%s' (%s: %s); "
+            "falling back to unresolved annotations, so parameter types default to STRING.",
+            tool_name,
+            type(err).__name__,
+            err,
+        )
+        return inspect.signature(func)
+
+
 class Tool:
     """Encapsulates a callable tool with introspection for LLM function calling."""
 
@@ -65,7 +93,7 @@ class Tool:
         self.description = (
             description or self._extract_description(func) or f"Execute {self.name}"
         )
-        self.signature = inspect.signature(func)
+        self.signature = _resolve_signature(func, self.name)
         self.is_async = inspect.iscoroutinefunction(func) or (
             callable(func) and inspect.iscoroutinefunction(getattr(func, "__call__", None))  # noqa: B004
         )

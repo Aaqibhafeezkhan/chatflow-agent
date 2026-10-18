@@ -218,6 +218,12 @@ def test_resolve_engine_model_prefix_overrides_default_engine() -> None:
     assert isinstance(grok_engine, OpenAIEngine)
     assert grok_engine.base_url == "https://api.x.ai/v1"
 
+    # DeepSeek model resolves to an OpenAIEngine with the DeepSeek base URL.
+    deepseek_agent = Agent(name="DeepSeeker", model="deepseek-chat", instructions="...")
+    deepseek_engine = resolve_engine(deepseek_agent, default_engine=default)
+    assert isinstance(deepseek_engine, OpenAIEngine)
+    assert deepseek_engine.base_url == "https://api.deepseek.com/v1"
+
     # A Gemini model still honors the provided default engine (Runner/mock behavior).
     gemini_agent = Agent(name="Planner", model="gemini-2.5-flash", instructions="...")
     assert resolve_engine(gemini_agent, default_engine=default) is default

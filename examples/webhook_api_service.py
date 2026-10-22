@@ -73,6 +73,9 @@ async def chat_endpoint(request: Request) -> JSONResponse:
     except Exception:
         return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
 
+    if not isinstance(data, dict):
+        return JSONResponse({"error": "JSON body must be an object"}, status_code=400)
+
     session_id = data.get("session_id")
     message = data.get("message")
     metadata = data.get("metadata", {})

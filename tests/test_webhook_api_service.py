@@ -100,6 +100,39 @@ async def test_chat_endpoint_rejects_invalid_json_body() -> None:
 
 
 @pytest.mark.parametrize(
+    "body",
+    [
+        b"[1, 2, 3]",
+        b"[]",
+        b'"hello"',
+        b'""',
+        b"42",
+        b"0",
+        b"3.14",
+        b"true",
+        b"false",
+        b"null",
+    ],
+)
+async def test_chat_endpoint_rejects_non_object_json_body(
+    body: bytes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    async def fake_run_async(**kwargs: object) -> AgentResponse:
+        calls.append(kwargs)
+        return AgentResponse(content="unexpected", active_agent_name="Unexpected")
+
+    monkeypatch.setattr(webhook_api_service.runner, "run_async", fake_run_async)
+
+    response = await webhook_api_service.chat_endpoint(make_raw_request(body=body))
+
+    assert response.status_code == 400
+    assert json.loads(response.body) == {"error": "JSON body must be an object"}
+    assert calls == []
+
+
+@pytest.mark.parametrize(
     "payload",
     [
         {},

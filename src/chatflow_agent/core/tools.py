@@ -155,10 +155,33 @@ class Tool:
             description or self._extract_description(func) or f"Execute {self.name}"
         )
         self.signature = _resolve_signature(func, self.name)
-        self.is_async = inspect.iscoroutinefunction(func) or (
-            callable(func) and inspect.iscoroutinefunction(getattr(func, "__call__", None))  # noqa: B004
-        )
+        self.is_async = self._detect_async(func)
         self.parameters_schema = self._build_parameters_schema()
+
+    @staticmethod
+    def _detect_async(func: Callable[..., Any]) -> bool:
+        """Detect whether a callable returns a coroutine when invoked.
+
+        Handles plain async functions, ``functools.partial`` wrappers (including
+        nested ones), and callable instances that implement ``async __call__``.
+        Plain ``partial`` wrappers are unwrapped so that an async callable instance
+        wrapped in ``partial`` is still classified as async. A ``partial``
+        subclass that overrides ``__call__`` is classified by its own
+        ``__call__`` instead of the wrapped ``.func``.
+        """
+        while isinstance(func, functools.partial):
+            # A partial subclass that overrides __call__ defines its own
+            # calling behaviour; that takes precedence over the wrapped .func.
+            if type(func).__call__ is not functools.partial.__call__:
+                return inspect.iscoroutinefunction(type(func).__call__)
+            func = func.func
+        if inspect.iscoroutinefunction(func):
+            return True
+        if callable(func) and inspect.iscoroutinefunction(
+            getattr(func, "__call__", None)  # noqa: B004
+        ):
+            return True
+        return False
 
     @staticmethod
     def _extract_name(func: Callable[..., Any]) -> str:

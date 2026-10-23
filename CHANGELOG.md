@@ -14,6 +14,9 @@ Versioning / Versionado: [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Security
+- **Stricter API key scoping for custom endpoints:** API keys read from environment variables are now sent only to the official endpoint of the provider they belong to. Configurations that use a custom `base_url` (proxies, gateways, other providers) must pass `api_key` explicitly; `api_key=""` sends no credential. `OpenAIEngine` and `AnthropicEngine` no longer follow HTTP redirects, even with an injected client configured to. See GHSA-mcgm-q29p-3984.
+
 ### Fixed
 - **SQLite Session Integrity Under Concurrent Requests (Issue #31):** Turns for the same `session_id` on a `SQLiteSessionStore` now share one lock per event loop and run one at a time, in the order they start waiting for it; previously every request got its own lock and turns ran in parallel. Each turn reloads the history, active agent and metadata committed by earlier turns after acquiring the lock. A failed or cancelled turn restores the state it started from, including messages pruned during the turn (#34). It no longer deletes or overwrites what someone else committed meanwhile (another turn's messages, or agent and metadata changed through another context): it then reverts only its own changes, in a single `BEGIN IMMEDIATE` transaction, and logs a warning. The lock registry holds locks weakly, so it does not grow with the number of sessions, and it creates separate locks per event loop, so successive `Runner.run()` calls keep working.
 - **Deleted Sessions No Longer Get Orphan Messages:** a turn that is running when its SQLite session is deleted fails with the new `SessionDeletedError` instead of storing its reply without a session (rows that later reappeared when the id was reused). A turn waiting for a deleted session starts a new, empty one; deleted content is never restored. Deleting a session erases its data but does not block its id.
@@ -92,6 +95,9 @@ If you are upgrading from v0.2.0:
 ## Español
 
 ## [Unreleased]
+
+### Seguridad
+- **Alcance más estricto de las API keys en endpoints personalizados:** las API keys leídas de variables de entorno ahora se envían solo al endpoint oficial del proveedor al que pertenecen. Las configuraciones con un `base_url` personalizado (proxies, gateways, otros proveedores) deben pasar `api_key` explícitamente; `api_key=""` no envía ninguna credencial. `OpenAIEngine` y `AnthropicEngine` ya no siguen redirects HTTP, aunque el cliente inyectado esté configurado para hacerlo. Ver GHSA-mcgm-q29p-3984.
 
 ### Corregido
 - **Integridad de Sesiones SQLite ante Solicitudes Concurrentes (Issue #31):** Los turnos de un mismo `session_id` en un `SQLiteSessionStore` ahora comparten un candado por event loop y se ejecutan de a uno, en el orden en que empiezan a esperarlo; antes cada solicitud obtenía su propio candado y los turnos corrían en paralelo. Cada turno vuelve a leer el historial, el agente activo y la metadata confirmados por los turnos anteriores después de adquirir el candado. Un turno fallido o cancelado restaura el estado con el que empezó, incluidos los mensajes podados durante el turno (#34). Ya no borra ni sobrescribe lo que otro confirmó mientras tanto (mensajes de otro turno, o agente y metadata cambiados desde otro contexto): en ese caso solo revierte sus propios cambios, en una única transacción `BEGIN IMMEDIATE`, y registra una advertencia. El registro de candados los mantiene con referencias débiles, por lo que no crece con la cantidad de sesiones, y crea candados separados por event loop, por lo que las llamadas sucesivas a `Runner.run()` siguen funcionando.

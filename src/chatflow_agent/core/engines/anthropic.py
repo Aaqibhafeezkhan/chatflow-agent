@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from chatflow_agent.core.engines.base import BaseEngine, EngineTurnResult, system_prompt
-from chatflow_agent.core.engines.openai_compatible import _lowercase_schema_types
+from chatflow_agent.core.engines.openai_compatible import _body_excerpt, _lowercase_schema_types
 from chatflow_agent.exceptions import ProviderError
 from chatflow_agent.types import Message, Role, ToolCall
 
@@ -148,13 +148,20 @@ class AnthropicEngine(BaseEngine):
                         retries += 1
                         continue
                     raise ProviderError(
-                        f"Anthropic API error ({resp.status_code}): {resp.text}"
+                        f"Anthropic API error ({resp.status_code}): {_body_excerpt(resp.text)}"
                     )
 
                 if resp.status_code >= 400:
-                    raise ProviderError(f"Anthropic API error ({resp.status_code}): {resp.text}")
+                    raise ProviderError(
+                        f"Anthropic API error ({resp.status_code}): {_body_excerpt(resp.text)}"
+                    )
 
-                data = resp.json()
+                try:
+                    data = resp.json()
+                except ValueError as err:
+                    raise ProviderError(
+                        f"Anthropic returned a malformed response: {err}"
+                    ) from err
                 break
             except (httpx.ConnectError, httpx.ConnectTimeout) as net_err:
                 if retries < self.max_retries:
@@ -173,20 +180,51 @@ class AnthropicEngine(BaseEngine):
                 if not self._external_client:
                     await client.aclose()
 
+        if not isinstance(data, dict):
+            raise ProviderError(
+                "Anthropic returned a malformed response: "
+                f"expected a JSON object, got {type(data).__name__}"
+            )
+        content = data.get("content", [])
+        if not isinstance(content, list):
+            raise ProviderError(
+                "Anthropic returned a malformed response: 'content' is not a list"
+            )
+
         text_chunks: list[str] = []
         extracted_calls: list[ToolCall] = []
 
-        for block in data.get("content", []):
+        for block in content:
+            if not isinstance(block, dict):
+                raise ProviderError(
+                    "Anthropic returned a malformed response: "
+                    "a content block is not an object"
+                )
             b_type = block.get("type")
             if b_type == "text":
-                text_chunks.append(block.get("text", ""))
-            elif b_type == "tool_use":
-                extracted_calls.append(
-                    ToolCall(
-                        id=block.get("id", ""),
-                        name=block.get("name", ""),
-                        args=block.get("input", {}),
+                text = block.get("text", "")
+                if not isinstance(text, str):
+                    raise ProviderError(
+                        "Anthropic returned a malformed response: "
+                        "'text' is not a string"
                     )
+                text_chunks.append(text)
+            elif b_type == "tool_use":
+                tool_id = block.get("id", "")
+                tool_name = block.get("name", "")
+                if not isinstance(tool_id, str) or not isinstance(tool_name, str):
+                    raise ProviderError(
+                        "Anthropic returned a malformed response: "
+                        "'tool_use.id' and 'tool_use.name' must be strings"
+                    )
+                tool_input = block.get("input", {})
+                if not isinstance(tool_input, dict):
+                    raise ProviderError(
+                        "Anthropic returned a malformed response: "
+                        "'tool_use.input' is not an object"
+                    )
+                extracted_calls.append(
+                    ToolCall(id=tool_id, name=tool_name, args=tool_input)
                 )
 
         return EngineTurnResult(

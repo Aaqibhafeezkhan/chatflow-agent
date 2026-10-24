@@ -20,7 +20,7 @@ pip install chatflow-agent
 
 ## Key Pillars (Why chatflow-agent?)
 
-* **Ultra-Lightweight Core:** Only 3 runtime dependencies (`google-genai`, `pydantic`, `httpx`). A tiny ~72 KB package footprint that installs in seconds on Docker, serverless, and cloud VPS environments.
+* **Ultra-Lightweight Core:** Only 2 runtime dependencies (`pydantic`, `httpx`). A tiny ~72 KB package footprint that installs in seconds on Docker, serverless, and cloud VPS environments.
 
 * **Omnichannel Native:** Production-ready connectors for **WhatsApp (Official Meta Cloud API)**, **Telegram**, **Webhooks (FastAPI)**, and interactive **CLI**.
 
@@ -223,6 +223,11 @@ load_dotenv()
 | **xAI Grok** | [xAI Console](https://console.x.ai/) | `XAI_API_KEY` | `api_key="..."` | Pay-as-you-go |
 | **OpenAI** | [OpenAI Platform](https://platform.openai.com/) | `OPENAI_API_KEY` | `api_key="..."` | Pay-as-you-go |
 | **Anthropic Claude** | [Anthropic Console](https://console.anthropic.com/) | `ANTHROPIC_API_KEY` | `api_key="..."` | Pay-as-you-go |
+
+> [!WARNING]
+> **Vertex AI is not supported.** `GeminiEngine` calls only the Gemini Developer API (Google AI Studio) with an API key. Application Default Credentials (ADC) and the `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION` variables are not used, so setups that relied on them fail with `ProviderError("Gemini API client is not configured. ...")`. Use a Gemini API key, or provide your own engine through `Runner(engine=...)`.
+>
+> **`GeminiEngine.client` was removed in v0.4.0.** It held the `google-genai` client, which is no longer a dependency. Assigning a fake to it no longer mocks anything. To call the SDK directly, install `google-genai` and create your own client. To mock Gemini in tests or customize HTTP, pass an `httpx.AsyncClient` with `GeminiEngine(http_client=...)`; it stays owned by you and must be used on one event loop only. See the [CHANGELOG](CHANGELOG.md) for the migration steps.
 
 ---
 

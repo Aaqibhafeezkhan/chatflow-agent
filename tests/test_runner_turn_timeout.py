@@ -131,8 +131,18 @@ async def test_turn_timeout_cancels_the_turn_rolls_back_and_releases_the_session
     before = history(any_store)
 
     engine.gates["stuck"] = asyncio.Event()  # never released
+    # 1.0 s covers the turn's disk writes before its engine call (file store, slow CI disks):
+    # the limit must expire while the engine runs.
+    turn = asyncio.ensure_future(runner.run_async("s", "stuck", turn_timeout=1.0))
+    try:
+        await asyncio.wait_for(engine.started_event("stuck").wait(), timeout=5.0)
+    except asyncio.TimeoutError:
+        turn.cancel()
+        await asyncio.wait_for(asyncio.gather(turn, return_exceptions=True), timeout=SAFETY)
+        pytest.fail("the turn limit expired before the engine started")
     with pytest.raises(asyncio.TimeoutError):
-        await bounded(runner.run_async("s", "stuck", turn_timeout=0.1))
+        await bounded(turn)
+    assert turn.done()  # the timed-out turn has finished, rollback included
 
     assert engine.cancelled == ["stuck"]
     assert history(any_store) == before
@@ -148,8 +158,10 @@ async def test_waiting_for_the_session_does_not_count_toward_turn_timeout(any_st
     holder = runner.spawn_turn("s", "hold")
     await bounded(engine.started_event("hold").wait())
 
-    queued = asyncio.create_task(runner.run_async("s", "queued", turn_timeout=0.1))
-    await asyncio.sleep(0.3)  # queued has waited at least 3x its turn limit
+    # The turn limit must cover the queued turn's own work, which with a file store
+    # includes real disk writes (slow on CI runners); the wait below still exceeds it.
+    queued = asyncio.create_task(runner.run_async("s", "queued", turn_timeout=1.0))
+    await asyncio.sleep(1.2)  # queued has waited longer than its turn limit
     assert not queued.done()
     assert "queued" not in engine.calls
 

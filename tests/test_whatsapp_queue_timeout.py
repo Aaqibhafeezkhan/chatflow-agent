@@ -17,6 +17,7 @@ from unittest.mock import patch
 import pytest
 
 from chatflow_agent.channels.whatsapp import WhatsAppChannel
+from chatflow_agent.core import runner as runner_mod
 from chatflow_agent.core.agent import Agent
 from chatflow_agent.core.engines import BaseEngine
 from chatflow_agent.core.engines.base import EngineTurnResult
@@ -45,6 +46,7 @@ class GateEngine(BaseEngine):
     def __init__(self) -> None:
         self.gates: dict[str, asyncio.Event] = {}
         self.started: dict[str, asyncio.Event] = {}
+        self.delays: dict[str, float] = {}
         self.calls: list[str] = []
         self.cancelled: list[str] = []
         self.active = 0
@@ -63,6 +65,8 @@ class GateEngine(BaseEngine):
             gate = self.gates.get(text)
             if gate is not None:
                 await gate.wait()
+            if text in self.delays:
+                await asyncio.sleep(self.delays[text])
             return EngineTurnResult(text=f"re:{text}")
         except asyncio.CancelledError:
             self.cancelled.append(text)
@@ -117,6 +121,26 @@ def history(store: Any, session_id: str = PHONE) -> list[str | None]:
 
 async def bounded(aw: Any) -> Any:
     return await asyncio.wait_for(aw, SAFETY)
+
+
+def patch_intact_turn_budget(original: float, widened: float) -> Any:
+    """Patch ``runner._within`` so a turn timer still equal to ``original`` uses ``widened``.
+
+    Start the patch only after queue wait has exceeded ``original``. A timer the
+    queue wait already reduced stays reduced, and that regression still fails.
+    """
+    real = runner_mod._within
+
+    async def _within(
+        timeout: float | None,
+        coro: Any,
+        expired: type[asyncio.TimeoutError] = asyncio.TimeoutError,
+    ) -> Any:
+        if expired is runner_mod._TurnTimeout and timeout == original:
+            timeout = widened
+        return await real(timeout, coro, expired)
+
+    return patch.object(runner_mod, "_within", _within)
 
 
 # ---------------------------------------------------------------- configuration
@@ -228,8 +252,8 @@ async def test_burst_longer_than_llm_timeout_is_fully_answered_in_order(any_stor
     """Ten concurrent messages queue behind a running turn for longer than
     llm_timeout_seconds; each of their turns fits in it. Before the fix most of them timed
     out while queued (audit case 2)."""
-    # Each turn must fit in its own limit even on slow CI runners (SQLite on disk), while
-    # the queue still lasts longer than that limit: turn=1.0 s, wait before release 1.2 s.
+    # Queue wait (1.2 s) exceeds the initial turn limit (1.0 s). The turn timer is
+    # widened only after that proof, and only while the 1.0 s budget is still intact.
     channel, runner, engine, sent = build(any_store, queue=30.0, turn=1.0)
     engine.gates["hold"] = asyncio.Event()
     holder = runner.spawn_turn(PHONE, "hold")
@@ -240,13 +264,19 @@ async def test_burst_longer_than_llm_timeout_is_fully_answered_in_order(any_stor
     tasks = [process(channel, f"w{i}", text) for i, text in enumerate(texts)]
 
     await asyncio.sleep(1.2)  # every message has now waited longer than llm_timeout_seconds
-    engine.gates["hold"].set()
-    await bounded(holder)
-    for text in texts:  # release one turn at a time, as soon as it is the running one
-        await bounded(engine.started_event(text).wait())
-        assert engine.active == 1
-        engine.gates[text].set()
-    await bounded(asyncio.gather(*tasks))
+    for task in tasks:
+        assert not task.done()
+    assert engine.calls == ["hold"]
+    # The 1.0 s budget captured at dispatch is still intact. Widen that turn timer
+    # so file-backed SQLite is outside the assertion (#150).
+    with patch_intact_turn_budget(1.0, 5.0):
+        engine.gates["hold"].set()
+        await bounded(holder)
+        for text in texts:  # release one turn at a time, as soon as it is the running one
+            await bounded(engine.started_event(text).wait())
+            assert engine.active == 1
+            engine.gates[text].set()
+        await bounded(asyncio.gather(*tasks))
 
     assert engine.calls == ["hold"] + texts  # FIFO
     assert engine.max_active == 1  # one turn of the session at a time
@@ -255,6 +285,54 @@ async def test_burst_longer_than_llm_timeout_is_fully_answered_in_order(any_stor
     for text in texts:
         expected += [text, f"re:{text}"]
     assert history(any_store) == expected
+
+
+@pytest.mark.asyncio
+async def test_burst_slow_turns_still_answer_after_queue_wait() -> None:
+    """A 1.1 s turn still answers after waiting longer than the original 1.0 s budget.
+
+    Three messages wait 1.2 s behind a held turn. The turn timer is patched only
+    after that wait. Each turn then sleeps 1.1 s, which the untouched 1.0 s budget
+    would reject. Every reply is ``re:<text>``, in order.
+    """
+    channel, runner, engine, sent = build(SessionStore(), queue=30.0, turn=1.0)
+    engine.gates["hold"] = asyncio.Event()
+    holder = runner.spawn_turn(PHONE, "hold")
+    await bounded(engine.started_event("hold").wait())
+    texts = ["a", "b", "c"]
+    for text in texts:
+        engine.gates[text] = asyncio.Event()
+        engine.delays[text] = 1.1
+    tasks = [process(channel, f"w{i}", text) for i, text in enumerate(texts)]
+
+    await asyncio.sleep(1.2)
+    for task in tasks:
+        assert not task.done()
+    with patch_intact_turn_budget(1.0, 5.0):
+        engine.gates["hold"].set()
+        await bounded(holder)
+        for text in texts:
+            await bounded(engine.started_event(text).wait())
+            engine.gates[text].set()
+        await bounded(asyncio.gather(*tasks))
+
+    assert engine.calls == ["hold"] + texts
+    assert sent == [(PHONE, f"re:{text}") for text in texts]
+
+
+@pytest.mark.asyncio
+async def test_consumed_turn_budget_still_expires_under_the_queue_proof_patch() -> None:
+    """A turn budget the queue wait already spent is not replaced by the widened limit."""
+
+    async def coro() -> None:
+        await asyncio.sleep(10)
+
+    with patch_intact_turn_budget(1.0, 5.0):
+        with pytest.raises(runner_mod._TurnTimeout):
+            await asyncio.wait_for(
+                runner_mod._within(0.0, coro(), runner_mod._TurnTimeout),
+                timeout=0.2,
+            )
 
 
 @pytest.mark.asyncio
